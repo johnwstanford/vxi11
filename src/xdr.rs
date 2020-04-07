@@ -10,7 +10,6 @@ pub struct Packer{
 }
 
 pub struct Unpacker {
-	// TODO: consider using a VecDeque
 	pub buff:Vec<u8>
 }
 
@@ -56,13 +55,6 @@ impl Unpacker {
 	
 	pub fn new() -> Self { Unpacker{buff: Vec::new()} }
 
-	fn check_padding(&mut self) {
-		// TODO: find a better way to do this
-		while self.buff.len() % 4 != 0 {
-			self.buff.remove(0);
-		}
-	}
-
 	pub fn reset(&mut self, data:&[u8]) { 
 		self.buff.clear();
 		self.buff.extend_from_slice(data);
@@ -70,7 +62,9 @@ impl Unpacker {
 
 	pub fn all_data_consumed(&self) -> bool { self.buff.len() == 0 }
 	pub fn drop(&mut self, n:usize) -> io::Result<()> {
-		// TODO: consider returning an error is n%4 != 0
+		if n%4 != 0 {
+			return Err(Error::new(ErrorKind::Other, "Only drop multiples of four bytes in order to maintain alignment"));
+		}
 		for _ in 0..n { 
 			if self.buff.len() == 0 { return Err(Error::new(ErrorKind::Other, "Tried to drop past the end of the buffer")) }
 			self.buff.remove(0); 
@@ -97,7 +91,9 @@ impl Unpacker {
 		Ok(ans)
 	}
 
-	pub fn unpack_enum(&mut self) -> io::Result<i32> { self.unpack_i32() }		// TODO: think about how to differentiate between an i32 and enum
+	// An enum is just an i32 with a restricted set of values.  We can't check that this value is in the restricted set at this
+	// level because it depends on the application, so for our purposes here, an enum is the same as an i32
+	pub fn unpack_enum(&mut self) -> io::Result<i32> { self.unpack_i32() }
 
 	pub fn unpack_bool(&mut self) -> io::Result<bool> {
 		match self.unpack_i32() {
@@ -111,7 +107,9 @@ impl Unpacker {
 	pub fn unpack_variable_len_opaque(&mut self) -> io::Result<Vec<u8>> {
 		let n:u32 = self.unpack_u32()?;
 		let ans:Vec<u8> = self.buff.drain(..(n as usize)).collect();
-		self.check_padding();
+
+		// Drop several bytes if necessary to maintain alignment
+		while self.buff.len() % 4 != 0 { self.buff.remove(0); }
 		Ok(ans)
 	}
 
