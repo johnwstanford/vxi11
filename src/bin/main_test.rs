@@ -38,8 +38,6 @@ pub fn main() -> io::Result<()> {
 	let mut spd3303x = vxi11::vxi11::CoreClient::new(host_spd3303x)?;
 
 	println!("{:?}", sds1202x.get_full_state());
-	println!("{:?}", sds1202x.get_channel_state(1));
-	println!("{:?}", sds1202x.get_channel_state(2));
 
 	sdg2042x.create_link()?;
 	spd3303x.create_link()?;
@@ -88,19 +86,14 @@ pub fn main() -> io::Result<()> {
 	sdg2042x.ask(b"C1:OUTP ON")?;
 	
 	// Set up oscilloscope
-	sds1202x.ask(b"C1:VDIV 1")?; 	                               // Voltage division
-	thread::sleep(Duration::from_secs_f32(0.5));
-
+	sds1202x.set_voltage_div(1, 1.0)?;                            // Voltage division
 	sds1202x.ask(b"WFSU SP,0,NP,0,FP,0")?;                         // Send all data points starting with the first one
-	thread::sleep(Duration::from_secs_f32(0.5));
 
-	let tdiv_cmd:String = format!("TDIV {:.7}S", freq.powi(-1));
+	let tdiv_cmd:String = format!("TDIV {:.7}S", 3.0*freq.powi(-1));
 	sds1202x.ask(tdiv_cmd.as_bytes())?; 	                       // Time division
-	thread::sleep(Duration::from_secs_f32(0.5));
 
 	let actual_tdiv_str:String = str::from_utf8(&sds1202x.ask(b"TDIV?")?).unwrap().to_string();
 	let actual_tdiv:f32 = TDIV_RE.captures(&actual_tdiv_str).unwrap().get(1).unwrap().as_str().parse::<f32>().unwrap();
-	thread::sleep(Duration::from_secs_f32(0.5));
 
 	// Trigger once before the real thing to get an accurate sample rate
 	sds1202x.ask(b"TRMD STOP")?;
@@ -119,7 +112,6 @@ pub fn main() -> io::Result<()> {
 			panic!("x={}, suffix={}", x, suffix)
 		}
 	};
-	thread::sleep(Duration::from_secs_f32(0.5));
 	
 	// Capture the samples that count
 	sds1202x.ask(b"TRMD STOP")?;

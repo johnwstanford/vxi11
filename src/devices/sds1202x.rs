@@ -5,6 +5,8 @@ extern crate regex;
 use std::io::{self, Error, ErrorKind};
 use std::ops::Drop;
 use std::str;
+use std::thread;
+use std::time::Duration;
 
 use regex::{Captures, Match, Regex};
 
@@ -17,8 +19,11 @@ lazy_static! {
     static ref VDIV_RE: Regex = Regex::new("(C\\d):VDIV\\s(.+)V\\s").unwrap();
 }
 
+pub const DEFAULT_TX_THROTTLE_DURATION_SEC:f32 = 0.1;
+
 pub struct SDS1202X {
 	core: CoreClient,
+	tx_throttle_duration: Duration,
 	pub state: Option<State>,
 }
 
@@ -28,6 +33,8 @@ pub struct State {
 	pub model: String,
 	pub serial_num: String,
 	pub fw_version: String,
+	pub ch1: ChannelState,
+	pub ch2: ChannelState,
 }
 
 #[derive(Debug)]
@@ -57,7 +64,10 @@ impl SDS1202X {
 			Err(_) => return Err(Error::new(ErrorKind::Other, "Received a response to *IDN? but unable to interpret as UTF-8")),
 		}
 
-		Ok(Self{ core, state: None })
+		// TODO: make this configurable
+		let tx_throttle_duration = Duration::from_secs_f32(DEFAULT_TX_THROTTLE_DURATION_SEC);
+
+		Ok(Self{ core, tx_throttle_duration, state: None })
 	}
 
 	pub fn get_full_state(&mut self) -> io::Result<State> {
@@ -68,7 +78,10 @@ impl SDS1202X {
 		let serial_num:String   = match_str(caps_idn.get(3), "No match for serial_num")?;
 		let fw_version:String   = match_str(caps_idn.get(4), "No match for fw_version")?;
 
-		Ok(State{ manufacturer, model, serial_num, fw_version })
+		let ch1 = self.get_channel_state(1)?;
+		let ch2 = self.get_channel_state(2)?;
+
+		Ok(State{ manufacturer, model, serial_num, fw_version, ch1, ch2 })
 	}
 
 	pub fn get_channel_state(&mut self, chan_num:u8) -> io::Result<ChannelState> {
@@ -83,7 +96,21 @@ impl SDS1202X {
 		Ok(ChannelState{ voltage_division })
 	}
 
-	pub fn ask(&mut self, data:&[u8]) -> io::Result<Vec<u8>> { self.core.ask(data) }
+	pub fn set_voltage_div(&mut self, chan_num:u8, vdiv:f32) -> io::Result<()> {
+		// TODO add options for whether to enable a full, partial, or no state update after commanding a configuration change
+		if chan_num != 1 && chan_num != 2 { return Err(Error::new(ErrorKind::Other, "SDS1202X only has two channels")) }
+
+		// The fine scale of voltage division is 10 [mV] so 2 decimal places is all we need
+		let str_vdiv_cmd:String  = format!("C{}:VDIV {:.2}", chan_num, vdiv);
+	    self.core.ask(str_vdiv_cmd.as_bytes())?;
+
+		Ok(())
+	}
+
+	pub fn ask(&mut self, data:&[u8]) -> io::Result<Vec<u8>> { 
+		thread::sleep(self.tx_throttle_duration);
+		self.core.ask(data) 
+	}
 
 }
 
