@@ -1,4 +1,7 @@
 
+#[macro_use]
+extern crate lazy_static;
+
 // External data representation, a protocol for serializing data to be sent over the network
 pub mod xdr;
 

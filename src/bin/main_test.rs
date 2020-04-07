@@ -37,6 +37,8 @@ pub fn main() -> io::Result<()> {
 	let mut sdg2042x = vxi11::vxi11::CoreClient::new(host_sdg2042x)?;
 	let mut spd3303x = vxi11::vxi11::CoreClient::new(host_spd3303x)?;
 
+	println!("{:?}", sds1202x.get_full_state());
+
 	sdg2042x.create_link()?;
 	spd3303x.create_link()?;
 
