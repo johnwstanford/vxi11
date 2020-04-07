@@ -19,6 +19,8 @@ use rustfft::num_traits::Zero;
 
 use vxi11::rpc::port_mapping::UdpPortMapperClient;
 
+use vxi11::devices::sds1202x::SDS1202X;
+
 lazy_static! {
     static ref TDIV_RE: Regex = Regex::new("TDIV\\s([^S]+)S").unwrap();
     static ref SARA_RE: Regex = Regex::new("SARA\\s(\\d+)(\\D)Sa/s").unwrap();
@@ -31,15 +33,13 @@ pub fn main() -> io::Result<()> {
 	let host_sdg2042x = "192.168.2.3";
 	let host_spd3303x = "192.168.2.2";
 
-	let mut sds1202x = vxi11::vxi11::CoreClient::new(host_sds1202x)?;
+	let mut sds1202x = SDS1202X::new(host_sds1202x)?;
 	let mut sdg2042x = vxi11::vxi11::CoreClient::new(host_sdg2042x)?;
 	let mut spd3303x = vxi11::vxi11::CoreClient::new(host_spd3303x)?;
 
-	sds1202x.create_link()?;
 	sdg2042x.create_link()?;
 	spd3303x.create_link()?;
 
-    assert!(str::from_utf8(&(sds1202x.ask(b"*IDN?")?)).unwrap().contains("SDS1202X"));
     assert!(str::from_utf8(&(sdg2042x.ask(b"*IDN?")?)).unwrap().contains("SDG2042X"));
     assert!(str::from_utf8(&(spd3303x.ask(b"*IDN?")?)).unwrap().contains("SPD3303X"));
 
@@ -176,7 +176,6 @@ pub fn main() -> io::Result<()> {
 	assert!((1.0 - (freq as f32)/best_freq).abs() < 0.06);
 
 	// Destroy links
-	sds1202x.destroy_link()?;
 	sdg2042x.destroy_link()?;
 	spd3303x.destroy_link()?;
 	

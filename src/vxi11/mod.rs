@@ -33,6 +33,8 @@ fn err(msg:&str) -> io::Error { Error::new(ErrorKind::Other, msg) }
 
 pub mod xdr_pack;
 
+// TODO: implement abort and interrupt clients
+
 pub struct CoreClient {
     client: TcpClient,
     opt_link: Option<Link>,      // TODO: consider trying to support multiple links at once, in which case this will become a Vec<u32>

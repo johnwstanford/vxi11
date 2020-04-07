@@ -17,12 +17,6 @@ impl Packer {
 	
 	pub fn new() -> Self { Packer{buff: Vec::new()} }
 
-	fn check_padding(&mut self) {
-		while self.buff.len() % 4 != 0 {
-			self.buff.push(0);
-		}
-	}
-
 	pub fn reset(&mut self) { self.buff.clear(); }
 
 	pub fn get_buf(&mut self) -> io::Result<Vec<u8>> {
@@ -39,13 +33,15 @@ impl Packer {
 		else { self.pack_i32(0) }
 	}
 
-	pub fn pack_enum(&mut self, x:i32) -> io::Result<()> { self.pack_i32(x) }		// TODO: think about how to differentiate between an i32 and enum
+	pub fn pack_enum(&mut self, x:i32) -> io::Result<()> { self.pack_i32(x) }
 
 	// Packing methods that require padding checks at the end
 	pub fn pack_variable_len_opaque(&mut self, data:&[u8]) -> io::Result<()> {
 		self.pack_u32(data.len() as u32)?;
 		self.buff.write(data)?;
-		self.check_padding();
+
+		// Ensure alignment
+		while self.buff.len() % 4 != 0 { self.buff.push(0); }
 		Ok(())
 	}
 
