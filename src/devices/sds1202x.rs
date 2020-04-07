@@ -14,6 +14,7 @@ lazy_static! {
     static ref IDN_RE: Regex  = Regex::new("([^,]+),([^,]+),([^,]+),([^,\\s]+)").unwrap();
     static ref TDIV_RE: Regex = Regex::new("TDIV\\s([^S]+)S").unwrap();
     static ref SARA_RE: Regex = Regex::new("SARA\\s(\\d+)(\\D)Sa/s").unwrap();
+    static ref VDIV_RE: Regex = Regex::new("(C\\d):VDIV\\s(.+)V\\s").unwrap();
 }
 
 pub struct SDS1202X {
@@ -27,6 +28,11 @@ pub struct State {
 	pub model: String,
 	pub serial_num: String,
 	pub fw_version: String,
+}
+
+#[derive(Debug)]
+pub struct ChannelState {
+	pub voltage_division: f32,
 }
 
 fn match_str(opt_match:Option<Match>, err:&str) -> io::Result<String> {
@@ -63,6 +69,18 @@ impl SDS1202X {
 		let fw_version:String   = match_str(caps_idn.get(4), "No match for fw_version")?;
 
 		Ok(State{ manufacturer, model, serial_num, fw_version })
+	}
+
+	pub fn get_channel_state(&mut self, chan_num:u8) -> io::Result<ChannelState> {
+		if chan_num != 1 && chan_num != 2 { return Err(Error::new(ErrorKind::Other, "SDS1202X only has two channels")) }
+
+		let str_vdiv_cmd:String  = format!("C{}:VDIV?", chan_num);
+	    let str_vdiv:String      = str::from_utf8(&self.core.ask(str_vdiv_cmd.as_bytes())?).map(|s| s.to_owned()).unwrap();
+		let caps_vdiv:Captures   = VDIV_RE.captures(&str_vdiv).unwrap();
+	    // TODO: check group 1 of the captures to make sure it matches the channel we asked for
+	    let voltage_division:f32 = (match_str(caps_vdiv.get(2), "No match for voltage_division")?).parse::<f32>().unwrap();
+
+		Ok(ChannelState{ voltage_division })
 	}
 
 	pub fn ask(&mut self, data:&[u8]) -> io::Result<Vec<u8>> { self.core.ask(data) }
