@@ -14,21 +14,26 @@ pub struct TcpClient {
     pub prog: u32,
     pub vers: u32,
     pub lastxid: u32,
+	pub packer: xdr::Packer,
+	pub unpacker: xdr::Unpacker,
 }
 
 impl TcpClient {
 	
 	pub fn connect<A: ToSocketAddrs>(addr: A, prog: u32, vers: u32) -> io::Result<Self> {
-		Ok(Self{ stream: TcpStream::connect(addr)?, prog, vers, lastxid: 0 })
+		let packer = xdr::Packer::new();
+		let unpacker = xdr::Unpacker::new();
+		Ok(Self{ stream: TcpStream::connect(addr)?, prog, vers, lastxid: 0, packer, unpacker })
 	}
 
-	pub fn do_call(&mut self, call:&[u8], unpacker:&mut xdr::Unpacker, lastxid:u32) -> io::Result<()> {
+	pub fn do_call(&mut self) -> io::Result<()> {
+		let call:Vec<u8> = self.packer.get_buf()?;
 		if call.len() > 0 {
 			let header:u32 = call.len() as u32 | 0x80000000;
 
 			let mut send_bytes:Vec<u8> = vec![];
 			send_bytes.write_u32::<BigEndian>(header)?;
-			send_bytes.extend_from_slice(call);
+			send_bytes.extend_from_slice(&call);
 			self.stream.write_all(&send_bytes)?;
 		}
 
@@ -53,13 +58,13 @@ impl TcpClient {
 			}
 
 	        // Load the response into the unpacker and make sure the xid matches
-	        unpacker.reset(&reply);
+	        self.unpacker.reset(&reply);
 
-	        let (xid, _) = xdr_unpack::unpack_replyheader(unpacker)?;
-	        if xid == lastxid {
+	        let (xid, _) = xdr_unpack::unpack_replyheader(&mut self.unpacker)?;
+	        if xid == self.lastxid {
 				// Packet from the present
 				return Ok(());
-	        } else if xid < lastxid {
+	        } else if xid < self.lastxid {
 		        // Packet from the past
 		        continue 'outer;
 	        } else {

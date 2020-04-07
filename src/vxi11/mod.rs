@@ -28,7 +28,6 @@ use std::io::{self, Error, ErrorKind};
 use crate::rpc::port_mapping::{TcpPortMapperClient, Mapping, Protocol};
 use crate::rpc::xdr_pack::{pack_callheader_no_auth};
 use crate::rpc::tcp_clients::TcpClient;
-use crate::xdr;
 
 fn err(msg:&str) -> io::Error { Error::new(ErrorKind::Other, msg) }
 
@@ -36,8 +35,6 @@ pub mod xdr_pack;
 
 pub struct CoreClient {
     client: TcpClient,
-    packer: xdr::Packer,
-    unpacker: xdr::Unpacker,
     opt_link: Option<Link>,      // TODO: consider trying to support multiple links at once, in which case this will become a Vec<u32>
 }
 
@@ -72,11 +69,9 @@ impl CoreClient {
 
         // Connect on the port specified and create a packer and unpacker
         let client   = TcpClient::connect((host, port as u16), DEVICE_CORE_PROG, DEVICE_CORE_VERS)?;
-        let packer   = xdr::Packer::new();
-        let unpacker = xdr::Unpacker::new();
 
         // Build and return the struct
-        Ok(CoreClient {client, packer, unpacker, opt_link: None })
+        Ok(CoreClient {client, opt_link: None })
     }
 
     pub fn create_link(&mut self) -> io::Result<()> {
@@ -85,17 +80,17 @@ impl CoreClient {
         }
 
         self.client.lastxid += 1;
-        self.packer.reset();
+        self.client.packer.reset();
         
-        pack_callheader_no_auth(&mut self.packer, self.client.lastxid, DEVICE_CORE_PROG, DEVICE_CORE_VERS, CREATE_LINK)?;
-        xdr_pack::pack_create_link_parms(&mut self.packer, CLIENT_ID, false, DEFAULT_LOCK_TIMEOUT, "inst0")?;
+        pack_callheader_no_auth(&mut self.client.packer, self.client.lastxid, DEVICE_CORE_PROG, DEVICE_CORE_VERS, CREATE_LINK)?;
+        xdr_pack::pack_create_link_parms(&mut self.client.packer, CLIENT_ID, false, DEFAULT_LOCK_TIMEOUT, "inst0")?;
         
-        self.client.do_call(&self.packer.get_buf()?, &mut self.unpacker, self.client.lastxid)?;
+        self.client.do_call()?;
 
-        let error:i32         = self.unpacker.unpack_i32()?;
-        let link_id:i32       = self.unpacker.unpack_i32()?;
-        let abort_port:u32    = self.unpacker.unpack_u32()?;
-        let max_recv_size:u32 = self.unpacker.unpack_u32()?;
+        let error:i32         = self.client.unpacker.unpack_i32()?;
+        let link_id:i32       = self.client.unpacker.unpack_i32()?;
+        let abort_port:u32    = self.client.unpacker.unpack_u32()?;
+        let max_recv_size:u32 = self.client.unpacker.unpack_u32()?;
 
         self.opt_link = Some(Link{ link_id, abort_port, max_recv_size });
 
@@ -118,16 +113,16 @@ impl CoreClient {
 
     pub fn write(&mut self, data:&[u8]) -> io::Result<()> {
         self.client.lastxid += 1;
-        self.packer.reset();
+        self.client.packer.reset();
 
         let link_id:i32 = self.get_link()?;
-        pack_callheader_no_auth(&mut self.packer, self.client.lastxid, DEVICE_CORE_PROG, DEVICE_CORE_VERS, DEVICE_WRITE)?;
-        xdr_pack::pack_device_write_parms(&mut self.packer, link_id, DEFAULT_LOCK_TIMEOUT, DEFAULT_LOCK_TIMEOUT, OPERATION_FLAGS_END_ONLY, data)?;
+        pack_callheader_no_auth(&mut self.client.packer, self.client.lastxid, DEVICE_CORE_PROG, DEVICE_CORE_VERS, DEVICE_WRITE)?;
+        xdr_pack::pack_device_write_parms(&mut self.client.packer, link_id, DEFAULT_LOCK_TIMEOUT, DEFAULT_LOCK_TIMEOUT, OPERATION_FLAGS_END_ONLY, data)?;
         
-        self.client.do_call(&self.packer.get_buf()?, &mut self.unpacker, self.client.lastxid)?;
+        self.client.do_call()?;
     
-        let error:i32 = self.unpacker.unpack_i32()?;
-        let size:u32  = self.unpacker.unpack_u32()?;
+        let error:i32 = self.client.unpacker.unpack_i32()?;
+        let size:u32  = self.client.unpacker.unpack_u32()?;
 
         if size as usize != data.len() {
             return Err(Error::new(ErrorKind::Other, "Number of bytes in confirmation doesn't match number of bytes sent"));
@@ -148,16 +143,16 @@ impl CoreClient {
 
     pub fn read(&mut self) -> io::Result<Vec<u8>> {
         self.client.lastxid += 1;
-        self.packer.reset();
+        self.client.packer.reset();
         
         let link_id:i32 = self.get_link()?;
-        pack_callheader_no_auth(&mut self.packer, self.client.lastxid, DEVICE_CORE_PROG, DEVICE_CORE_VERS, DEVICE_READ)?;
-        xdr_pack::pack_device_read_parms(&mut self.packer, link_id, std::u32::MAX, DEFAULT_LOCK_TIMEOUT, DEFAULT_LOCK_TIMEOUT, 0, 0)?;
-        self.client.do_call(&self.packer.get_buf()?, &mut self.unpacker, self.client.lastxid)?;
+        pack_callheader_no_auth(&mut self.client.packer, self.client.lastxid, DEVICE_CORE_PROG, DEVICE_CORE_VERS, DEVICE_READ)?;
+        xdr_pack::pack_device_read_parms(&mut self.client.packer, link_id, std::u32::MAX, DEFAULT_LOCK_TIMEOUT, DEFAULT_LOCK_TIMEOUT, 0, 0)?;
+        self.client.do_call()?;
 
-        let error:i32    = self.unpacker.unpack_i32()?;
-        let reason:i32   = self.unpacker.unpack_i32()?;
-        let data:Vec<u8> = self.unpacker.unpack_variable_len_opaque()?;
+        let error:i32    = self.client.unpacker.unpack_i32()?;
+        let reason:i32   = self.client.unpacker.unpack_i32()?;
+        let data:Vec<u8> = self.client.unpacker.unpack_variable_len_opaque()?;
         
         match error {
             0  => {
@@ -186,14 +181,14 @@ impl CoreClient {
         }
 
         self.client.lastxid += 1;
-        self.packer.reset();
+        self.client.packer.reset();
         
         let link_id:i32 = self.get_link()?;
-        pack_callheader_no_auth(&mut self.packer, self.client.lastxid, DEVICE_CORE_PROG, DEVICE_CORE_VERS, DESTROY_LINK)?;
-        self.packer.pack_i32(link_id)?;
-        self.client.do_call(&self.packer.get_buf()?, &mut self.unpacker, self.client.lastxid)?;
+        pack_callheader_no_auth(&mut self.client.packer, self.client.lastxid, DEVICE_CORE_PROG, DEVICE_CORE_VERS, DESTROY_LINK)?;
+        self.client.packer.pack_i32(link_id)?;
+        self.client.do_call()?;
 
-        let device_error:i32 = self.unpacker.unpack_i32()?;
+        let device_error:i32 = self.client.unpacker.unpack_i32()?;
         match device_error {
             0 => Ok(()),
             4 => Err(err("Invalid link identifier")),

@@ -37,45 +37,40 @@ pub struct Mapping {
 	pub program: u32,
 	pub version: u32,
 	pub protocol: Protocol,
-	pub port: u32,				// TODO: consider changing this to be a u16, although maybe not because XDR encodes it as a u32 for alignment
+	pub port: u32,
 }
 
 pub struct TcpPortMapperClient {
 	pub host: String,
-	pub packer: xdr::Packer,
-	pub unpacker: xdr::Unpacker,
 	pub tcp_client: TcpClient,
 }
 
 impl TcpPortMapperClient {
 
 	pub fn new(host:&str) -> io::Result<Self> {
-		let packer = xdr::Packer::new();
-		let unpacker = xdr::Unpacker::new();
 		let tcp_client = TcpClient::connect((host, PMAP_PORT), PMAP_PROG, PMAP_VERS)?;
-		Ok(Self{ host: host.to_owned(), packer, unpacker, tcp_client })
+		Ok(Self{ host: host.to_owned(), tcp_client })
 	}
 
 	pub fn make_call(&mut self) -> io::Result<()> {
-		// TODO: Have tcp_client read its own lastxid once testing is done
-	    self.tcp_client.do_call(&self.packer.get_buf()?, &mut self.unpacker, self.tcp_client.lastxid)
+	    self.tcp_client.do_call()
 	}
 
 	pub fn start_call(&mut self, prc:u32) -> io::Result<()> {
 	    self.tcp_client.lastxid += 1;
-	    self.packer.reset();
-	    xdr_pack::pack_callheader_no_auth(&mut self.packer, self.tcp_client.lastxid, self.tcp_client.prog, self.tcp_client.vers, prc)
+	    self.tcp_client.packer.reset();
+	    xdr_pack::pack_callheader_no_auth(&mut self.tcp_client.packer, self.tcp_client.lastxid, self.tcp_client.prog, self.tcp_client.vers, prc)
 	}
 
 
 	pub fn get_port(&mut self, m:&Mapping) -> io::Result<u32> {
         self.start_call(PMAPPROC_GETPORT)?;
-        xdr_pack::pack_mapping(&mut self.packer, m.program, m.version, m.protocol.to_u32(), m.port as u32)?;
+        xdr_pack::pack_mapping(&mut self.tcp_client.packer, m.program, m.version, m.protocol.to_u32(), m.port as u32)?;
         self.make_call()?;
 
-       	let ans:u32 = self.unpacker.unpack_u32()?;
+       	let ans:u32 = self.tcp_client.unpacker.unpack_u32()?;
 
-       	if self.unpacker.all_data_consumed() { Ok(ans) }
+       	if self.tcp_client.unpacker.all_data_consumed() { Ok(ans) }
        	else { Err(Error::new(ErrorKind::Other, "Data unexpectedly left over in unpacker after unpacking port")) }
 	}
 
