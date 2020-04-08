@@ -3,3 +3,4 @@
 // organize them into modules by manufacturer
 
 pub mod sds1202x;
+pub mod sdg2042x;

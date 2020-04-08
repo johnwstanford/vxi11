@@ -89,7 +89,7 @@ pub fn main() -> io::Result<()> {
 	sds1202x.set_voltage_div(1, 1.0)?;                            // Voltage division
 	sds1202x.ask(b"WFSU SP,0,NP,0,FP,0")?;                         // Send all data points starting with the first one
 
-	let tdiv_cmd:String = format!("TDIV {:.7}S", 3.0*freq.powi(-1));
+	let tdiv_cmd:String = format!("TDIV {:.7}S", 10.0*freq.powi(-1));
 	sds1202x.ask(tdiv_cmd.as_bytes())?; 	                       // Time division
 
 	let actual_tdiv_str:String = str::from_utf8(&sds1202x.ask(b"TDIV?")?).unwrap().to_string();
@@ -168,7 +168,7 @@ pub fn main() -> io::Result<()> {
 		}
 	}
 
-	println!("{:.2} [kHz] vs {:.2} [kHz], {:.5}", freq / 1.0e3, best_freq / 1.0e3, (freq as f32)/best_freq);
+	println!("{:.2} [kHz] vs {:.2} [kHz], {:.5}, {}", freq / 1.0e3, best_freq / 1.0e3, (freq as f32)/best_freq, sds1202x.read_cymometer().unwrap());
 	assert!((1.0 - (freq as f32)/best_freq).abs() < 0.06);
 
 	// Destroy links

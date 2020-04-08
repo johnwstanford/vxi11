@@ -107,6 +107,11 @@ impl SDS1202X {
 		Ok(())
 	}
 
+	pub fn read_cymometer(&mut self) -> io::Result<String> {
+		// TODO: decode to a float
+		Ok(str::from_utf8(&self.core.ask(b"CYMT?")?).map(|s| s.to_owned()).unwrap())
+	}
+
 	pub fn ask(&mut self, data:&[u8]) -> io::Result<Vec<u8>> { 
 		thread::sleep(self.tx_throttle_duration);
 		self.core.ask(data) 
@@ -223,14 +228,14 @@ impl Drop for SDS1202X {
 // XYDS	XY_DISPLAY			DISPLAY
 // ASET	AUTO_SETUP			ACQUISITION
 // BUZZ	BUZZER				MISCELLANEOUS
-// CYMT	CYMOMETER			FUNCTION
 // SAST	SAMPLE_STATUS		ACQUISITION
 // SARA	SAMPLE_RATE			ACQUISITION
 // TDIV	TIME_DIV			ACQUISITION
 // TRMD	TRIG_MODE			ACQUISITION
-// VDIV	VOLT_DIV			ACQUISITION
 
 // Partially implemented
 
 // Implemented
-// *IDN?	*IDN?				MISCELLANEOUS
+// *IDN?		*IDN?				MISCELLANEOUS
+// CYMT			CYMOMETER			FUNCTION
+// VDIV			VOLT_DIV			ACQUISITION
