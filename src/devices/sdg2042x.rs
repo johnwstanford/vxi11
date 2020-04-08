@@ -1,6 +1,7 @@
 
 
 extern crate regex;
+extern crate serde;
 
 use std::io::{self, Error, ErrorKind};
 use std::ops::Drop;
@@ -9,12 +10,14 @@ use std::thread;
 use std::time::Duration;
 
 use regex::{Captures, Match, Regex};
+use serde::{Serialize, Deserialize};
 
 use crate::vxi11::CoreClient;
 
 lazy_static! {
-    static ref IDN_RE: Regex  = Regex::new("([^,]+),([^,]+),([^,]+),([^,\\s]+)").unwrap();
     static ref BSWV_RE: Regex = Regex::new("(C[12]):BSWV\\sWVTP,(SINE|SQUARE|RAMP|PULSE|NOISE|ARB|DC),FRQ,(\\d+)HZ,PERI,[^,]+,AMP,([^V]+)V,AMPVRMS,[^,]+,OFST,([^V]+)V,HLEV,[^,]+,LLEV,[^,]+,PHSE,([^,]+)").unwrap();
+    static ref IDN_RE: Regex  = Regex::new("([^,]+),([^,]+),([^,]+),([^,\\s]+)").unwrap();
+    static ref OUTP_RE: Regex = Regex::new("C[12]:OUTP (ON|OFF),LOAD,([^,]+),PLRT,([^,]+)").unwrap();
 }
 
 pub const DEFAULT_TX_THROTTLE_DURATION_SEC:f32 = 0.1;
@@ -25,7 +28,7 @@ pub struct SDG2042X {
 	pub state: Option<State>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct State {
 	pub manufacturer: String,
 	pub model: String,
@@ -35,7 +38,7 @@ pub struct State {
 	pub ch2: ChannelState,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum Wavetype {
 	Sine,
 	Square,
@@ -46,7 +49,7 @@ pub enum Wavetype {
 	DC,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ChannelState {
 	pub basic_wavetype: Wavetype,
 	pub freq_hz:u32,
@@ -134,6 +137,32 @@ impl SDG2042X {
 			.map_err(|_| Error::new(ErrorKind::Other, "Unable to parse matched phase_deg as an f32"))?;
 
 		Ok(ChannelState{ basic_wavetype, freq_hz, amp_v, offset_v, phase_deg })
+	}
+
+	pub fn set_output(&mut self, chan_num:u8, on:bool) -> io::Result<()> {
+		chan_ok(chan_num)?;
+
+		if self.get_output(chan_num)? == on {
+			// Already in the commanded state, so don't do anything
+		} else {
+			let outp_cmd:String   = format!("C{}:OUTP {}", chan_num, if on {"ON"} else {"OFF"});
+			self.ask_str(&outp_cmd)?;
+		}
+
+		Ok(())
+	}
+
+	pub fn get_output(&mut self, chan_num:u8) -> io::Result<bool> {
+		chan_ok(chan_num)?;
+
+		let cmd:String = format!("C{}:OUTP?", chan_num);
+		let res:String = self.ask_str(&cmd)?;
+
+		// TODO: parse impedance and polarity
+		let cap:Captures = OUTP_RE.captures(&res).unwrap();
+		let on:bool = cap.get(1).map(|m| m.as_str()) == Some("ON");
+
+		Ok(on)
 	}
 
 	pub fn set_basic_wavetype(&mut self, chan_num:u8, wvtp:Wavetype, freq_hz:u32, amp_v:f32, offset_v:f32, phase_deg:f32) -> io::Result<()> {

@@ -9,13 +9,14 @@ use std::thread;
 use std::time::Duration;
 
 use regex::{Captures, Match, Regex};
+use serde::{Serialize, Deserialize};
 
 use crate::vxi11::CoreClient;
 
 lazy_static! {
     static ref IDN_RE: Regex  = Regex::new("([^,]+),([^,]+),([^,]+),([^,\\s]+)").unwrap();
-    static ref TDIV_RE: Regex = Regex::new("TDIV\\s([^S]+)S").unwrap();
     static ref SARA_RE: Regex = Regex::new("SARA\\s(\\d+)(\\D)Sa/s").unwrap();
+    static ref TDIV_RE: Regex = Regex::new("TDIV\\s([^S]+)S").unwrap();
     static ref VDIV_RE: Regex = Regex::new("(C\\d):VDIV\\s(.+)V\\s").unwrap();
 }
 
@@ -27,17 +28,18 @@ pub struct SDS1202X {
 	pub state: Option<State>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct State {
 	pub manufacturer: String,
 	pub model: String,
 	pub serial_num: String,
 	pub fw_version: String,
+	pub time_division: f32,
 	pub ch1: ChannelState,
 	pub ch2: ChannelState,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ChannelState {
 	pub voltage_division: f32,
 }
@@ -48,6 +50,14 @@ fn match_str(opt_match:Option<Match>, err:&str) -> io::Result<String> {
 		None    => Err(Error::new(ErrorKind::Other, err))
 	}
 }
+
+fn err(msg:&str) -> io::Error { Error::new(ErrorKind::Other, msg) }
+
+fn chan_ok(n:u8) -> io::Result<()> {
+	if n != 1 && n != 2 { Err(err("SDS1202X only has two channels")) }
+	else { Ok(()) }		
+}
+
 
 impl SDS1202X {		
 
@@ -78,31 +88,50 @@ impl SDS1202X {
 		let serial_num:String   = match_str(caps_idn.get(3), "No match for serial_num")?;
 		let fw_version:String   = match_str(caps_idn.get(4), "No match for fw_version")?;
 
+	    let time_division:f32 = self.get_time_division()?;
+
 		let ch1 = self.get_channel_state(1)?;
 		let ch2 = self.get_channel_state(2)?;
 
-		Ok(State{ manufacturer, model, serial_num, fw_version, ch1, ch2 })
+		Ok(State{ manufacturer, model, serial_num, fw_version, time_division, ch1, ch2 })
 	}
 
 	pub fn get_channel_state(&mut self, chan_num:u8) -> io::Result<ChannelState> {
-		if chan_num != 1 && chan_num != 2 { return Err(Error::new(ErrorKind::Other, "SDS1202X only has two channels")) }
+		chan_ok(chan_num)?;
 
-		let str_vdiv_cmd:String  = format!("C{}:VDIV?", chan_num);
-	    let str_vdiv:String      = str::from_utf8(&self.core.ask(str_vdiv_cmd.as_bytes())?).map(|s| s.to_owned()).unwrap();
-		let caps_vdiv:Captures   = VDIV_RE.captures(&str_vdiv).unwrap();
 	    // TODO: check group 1 of the captures to make sure it matches the channel we asked for
-	    let voltage_division:f32 = (match_str(caps_vdiv.get(2), "No match for voltage_division")?).parse::<f32>().unwrap();
+	    // TODO: remove all unwraps
+	    let voltage_division:f32 = {
+			let cmd:String   = format!("C{}:VDIV?", chan_num);
+		    let res:String   = self.ask_str(&cmd)?;
+			let cap:Captures = VDIV_RE.captures(&res).unwrap();
+	    	(match_str(cap.get(2), "No match for voltage_division")?).parse::<f32>().unwrap()
+	    };
 
 		Ok(ChannelState{ voltage_division })
 	}
 
+	pub fn get_time_division(&mut self) -> io::Result<f32> {
+	    let res:String   = self.ask_str("TDIV?")?;
+	    let cap:Captures = TDIV_RE.captures(&res).unwrap();
+    	(match_str(cap.get(1), "No match for time_division")?).parse::<f32>().map_err(|_| Error::new(ErrorKind::Other, "SDS1202X only has two channels"))
+	}
+
+	pub fn set_time_division(&mut self, tdiv:f32) -> io::Result<()> {
+		// The fine scale of voltage division is 10 [mV] so 2 decimal places is all we need
+		let cmd:String = format!("TDIV {:.7}S", tdiv);
+	    self.ask_str(&cmd)?;
+
+		Ok(())
+	}
+
 	pub fn set_voltage_div(&mut self, chan_num:u8, vdiv:f32) -> io::Result<()> {
 		// TODO add options for whether to enable a full, partial, or no state update after commanding a configuration change
-		if chan_num != 1 && chan_num != 2 { return Err(Error::new(ErrorKind::Other, "SDS1202X only has two channels")) }
+		chan_ok(chan_num)?;
 
 		// The fine scale of voltage division is 10 [mV] so 2 decimal places is all we need
-		let str_vdiv_cmd:String  = format!("C{}:VDIV {:.2}", chan_num, vdiv);
-	    self.core.ask(str_vdiv_cmd.as_bytes())?;
+		let cmd:String  = format!("C{}:VDIV {:.2}", chan_num, vdiv);
+	    self.ask_str(&cmd)?;
 
 		Ok(())
 	}
@@ -117,6 +146,11 @@ impl SDS1202X {
 		self.core.ask(data) 
 	}
 
+	pub fn ask_str(&mut self, data:&str) -> io::Result<String> {
+		str::from_utf8(&self.core.ask(data.as_bytes())?)
+			.map(|s| s.to_owned())
+			.map_err(|_| Error::new(ErrorKind::Other, "Unable to parse response as UTF-8"))
+	}
 }
 
 impl Drop for SDS1202X {
