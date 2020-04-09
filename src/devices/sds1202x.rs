@@ -1,13 +1,14 @@
 
-
+extern crate byteorder;
 extern crate regex;
 
-use std::io::{self, Error, ErrorKind};
+use std::io::{self, Error, ErrorKind, Cursor};
 use std::ops::Drop;
 use std::str;
 use std::thread;
 use std::time::Duration;
 
+use byteorder::ReadBytesExt;
 use regex::{Captures, Match, Regex};
 use serde::{Serialize, Deserialize};
 
@@ -18,6 +19,7 @@ lazy_static! {
     static ref SARA_RE: Regex = Regex::new("SARA\\s(\\d+)(\\D)Sa/s").unwrap();
     static ref TDIV_RE: Regex = Regex::new("TDIV\\s([^S]+)S").unwrap();
     static ref TRMD_RE: Regex = Regex::new("TRMD\\s(AUTO|NORM|SINGLE|STOP)").unwrap();
+    static ref OFST_RE: Regex = Regex::new("(C\\d):OFST\\s(.+)V\\s").unwrap();
     static ref VDIV_RE: Regex = Regex::new("(C\\d):VDIV\\s(.+)V\\s").unwrap();
 }
 
@@ -106,14 +108,7 @@ impl SDS1202X {
 	pub fn get_channel_state(&mut self, chan_num:u8) -> io::Result<ChannelState> {
 		chan_ok(chan_num)?;
 
-	    // TODO: check group 1 of the captures to make sure it matches the channel we asked for
-	    // TODO: remove all unwraps
-	    let voltage_division:f32 = {
-			let cmd:String   = format!("C{}:VDIV?", chan_num);
-		    let res:String   = self.ask_str(&cmd)?;
-			let cap:Captures = VDIV_RE.captures(&res).unwrap();
-	    	(match_str(cap.get(2), "No match for voltage_division")?).parse::<f32>().unwrap()
-	    };
+	    let voltage_division:f32 = self.get_voltage_div(chan_num)?;
 
 		Ok(ChannelState{ voltage_division })
 	}
@@ -185,12 +180,92 @@ impl SDS1202X {
 	    Ok(())
 	}
 
+	pub fn transfer_waveform_raw(&mut self, chan_num:u8) -> io::Result<Vec<i8>> {
+
+		chan_ok(chan_num)?;
+
+		// TODO: get the rest of the data not stored in DAT2 (small amount in the cases I've checked)
+	    // let ch_all:Vec<u8> = self.ask(b"C1:WAVEFORM? ALL")?;
+	    // println!("ch_all={:?}", ch_all);
+
+	    let cmd:String = format!("C{}:WAVEFORM? DAT2", chan_num);
+	    let ch_dat2:Vec<u8> = self.ask(&(cmd.as_bytes()))?;
+
+		// TODO: process the rest of the header
+		let (header, body) = ch_dat2.split_at(21);
+		let (_, length_str) = header.split_at(12);
+
+		// // Retrieve and decode data
+		let length:usize = str::from_utf8(length_str).unwrap().parse::<usize>().unwrap();
+
+		let mut rdr = Cursor::new(body);
+		let mut ans:Vec<i8> = vec![];
+		for _ in 0..length {
+			ans.push(rdr.read_i8()?);
+		}
+
+		Ok(ans)
+	}
+
+	pub fn get_voltage_div(&mut self, chan_num:u8) -> io::Result<f32> {
+		chan_ok(chan_num)?;
+
+	    // TODO: check group 1 of the captures to make sure it matches the channel we asked for
+	    // TODO: remove all unwraps
+		let cmd:String   = format!("C{}:VDIV?", chan_num);
+	    let res:String   = self.ask_str(&cmd)?;
+		let cap:Captures = VDIV_RE.captures(&res).unwrap();
+    	
+		Ok((match_str(cap.get(2), "No match for voltage_division")?).parse::<f32>().unwrap())
+
+	}
+
+	pub fn get_voltage_ofs(&mut self, chan_num:u8) -> io::Result<f32> {
+		chan_ok(chan_num)?;
+
+	    // TODO: check group 1 of the captures to make sure it matches the channel we asked for
+		let cmd:String   = format!("C{}:OFST?", chan_num);
+	    let res:String   = self.ask_str(&cmd)?;
+	    let cap:Captures = OFST_RE.captures(&res).unwrap();
+    	
+		Ok((match_str(cap.get(2), "No match for voltage_offset")?).parse::<f32>().unwrap())
+
+	}
+
+	pub fn transfer_waveform(&mut self, chan_num:u8) -> io::Result<Vec<(f32, f32)>> {
+		let raw_data:Vec<i8> = self.transfer_waveform_raw(chan_num)?;
+
+		let vdiv = self.get_voltage_div(chan_num)?;
+		let vofs = self.get_voltage_ofs(chan_num)?;
+		let sps = self.get_sample_rate()?;
+
+		let mut time:f32 = 0.0;
+		let mut time_domain: Vec<(f32, f32)> = vec![];
+		for raw in raw_data {
+			let voltage:f32 = (raw as f32)*(vdiv/25.0) - vofs;
+			time_domain.push((time, voltage));
+			time += 1.0 / sps;
+		}
+
+		Ok(time_domain)
+	}
+
 	pub fn set_voltage_div(&mut self, chan_num:u8, vdiv:f32) -> io::Result<()> {
 		// TODO add options for whether to enable a full, partial, or no state update after commanding a configuration change
 		chan_ok(chan_num)?;
 
 		// The fine scale of voltage division is 10 [mV] so 2 decimal places is all we need
 		let cmd:String  = format!("C{}:VDIV {:.2}", chan_num, vdiv);
+	    self.ask_str(&cmd)?;
+
+		Ok(())
+	}
+
+	pub fn set_voltage_ofs(&mut self, chan_num:u8, vofs:f32) -> io::Result<()> {
+		chan_ok(chan_num)?;
+
+		// TODO: Figure out how many decimal places actually matter
+		let cmd:String = format!("C{}:OFST {:.6}", chan_num, vofs);
 	    self.ask_str(&cmd)?;
 
 		Ok(())
@@ -221,7 +296,6 @@ impl Drop for SDS1202X {
 
 // Not Yet Implemented
 // ALST?	ALL_STATUS?			STATUS
-// ARM	ARM_ACQUISITION		ACQUISITION
 // ATTN	ATTENUATION			ACQUISITION
 // ACAL	AUTO_CALIBRATE		MISCELLANEOUS
 // AUTTS	AUTO_TYPESET		ACQUISITION
@@ -270,7 +344,6 @@ impl Drop for SDS1202X {
 // MTVP	MATH_VERT_POS		ACQUISITION
 // MTVD	MATH_VERT_DIV		ACQUISITION
 // MEAD	MEASURE_DELY		FUNCTION
-// OFST	OFFSET				ACQUISITION
 // *OPC	*OPC				STATUS
 // *OPT?	*OPT?				MISCELLANEOUS
 // PACL	PARAMETER_CLR		CURSOR
@@ -316,19 +389,21 @@ impl Drop for SDS1202X {
 // VPOS	VERT_POSITION		DISPLAY
 // VTCL	VERTICAL			ACQUISITION
 // WAIT	WAIT				ACQUISITION
-// WF	WAVEFORM			WAVEFORMTRANS
 // WFSU	WAVEFORM_SETUP		WAVEFORMTRANS
 // XYDS	XY_DISPLAY			DISPLAY
 // ASET	AUTO_SETUP			ACQUISITION
 // BUZZ	BUZZER				MISCELLANEOUS
 
 // Partially implemented
+// ARM			ARM_ACQUISITION		ACQUISITION
 // SAST			SAMPLE_STATUS		ACQUISITION
+// WF			WAVEFORM			WAVEFORMTRANS
 
 // Implemented
 // *IDN?		*IDN?				MISCELLANEOUS
 // CYMT			CYMOMETER			FUNCTION
 // FRTR			FORCE_TRIGGER		ACQUISITION
+// OFST			OFFSET				ACQUISITION
 // SARA			SAMPLE_RATE			ACQUISITION
 // TDIV			TIME_DIV			ACQUISITION
 // TRMD	 		TRIG_MODE			ACQUISITION

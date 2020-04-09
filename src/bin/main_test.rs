@@ -91,8 +91,6 @@ pub fn main() -> io::Result<()> {
 	let tdiv_cmd:String = format!("TDIV {:.7}S", 10.0*freq.powi(-1));
 	sds1202x.ask(tdiv_cmd.as_bytes())?; 	                       // Time division
 
-	let actual_tdiv:f32 = sds1202x.get_time_division()?;
-
 	// Trigger once before the real thing to get an accurate sample rate
 	sds1202x.ask(b"TRMD STOP")?;
 	sds1202x.ask(b"TRMD SINGLE;ARM;FRTR")?;
@@ -101,15 +99,7 @@ pub fn main() -> io::Result<()> {
 		thread::sleep(Duration::from_secs_f32(0.5));
     }
 
-	let samp_rate_str:String = str::from_utf8(&sds1202x.ask(b"SARA?")?).unwrap().to_string();
-	let samp_rate_caps = SARA_RE.captures(&samp_rate_str).unwrap();
-	let samp_rate_sps:f32 = match (samp_rate_caps.get(1).unwrap().as_str(), samp_rate_caps.get(2).unwrap().as_str()) {
-		(x, "M") => x.parse::<f32>().unwrap() * 1e6,
-		(x, "G") => x.parse::<f32>().unwrap() * 1e9,
-		(x, suffix) => {
-			panic!("x={}, suffix={}", x, suffix)
-		}
-	};
+	let samp_rate_sps:f32 = sds1202x.get_sample_rate()?;
 	
 	// Capture the samples that count
 	sds1202x.ask(b"TRMD STOP")?;

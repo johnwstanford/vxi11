@@ -1,10 +1,15 @@
 
+extern crate rustfft;
 extern crate serde;
 extern crate vxi11;
 
 use std::io;
 use std::thread;
 use std::time::Duration;
+
+use rustfft::FFTplanner;
+use rustfft::num_complex::Complex;
+use rustfft::num_traits::Zero;
 
 use vxi11::devices::sds1202x::{SDS1202X, TriggerMode};
 use vxi11::devices::sdg2042x::{SDG2042X, Wavetype};
@@ -32,7 +37,9 @@ pub fn main() -> io::Result<()> {
 	// Set up oscilloscope with state that doesn't change with frequency
 	// TODO: ensure that both channels are active
 	sds1202x.set_voltage_div(1, 0.1)?;                            // Voltage division
-	sds1202x.set_voltage_div(2, 1.0)?;                            // Voltage division
+	sds1202x.set_voltage_div(2, 1.0)?;                            
+	sds1202x.set_voltage_ofs(1, 0.0)?;							  // Voltage offset
+	sds1202x.set_voltage_ofs(1, 0.0)?;
 	sds1202x.ask(b"WFSU SP,0,NP,0,FP,0")?;                        // Send all data points starting with the first one
 
 	// Step through frequencies
@@ -45,7 +52,7 @@ pub fn main() -> io::Result<()> {
 		thread::sleep(Duration::new(2,0));
 
 		// Set up oscilloscope
-		sds1202x.set_time_division(10.0 / current_freq_hz)?;
+		sds1202x.set_time_division(1.0 / current_freq_hz)?;
 
 		// Acquire once before the real thing to get an accurate sample rate
 		sds1202x.acquire()?;
@@ -57,6 +64,33 @@ pub fn main() -> io::Result<()> {
 		sds1202x.acquire()?;
 		sds1202x.wait()?;
 
+		let ch1:Vec<i8> = sds1202x.transfer_waveform_raw(1)?;
+		let ch2:Vec<i8> = sds1202x.transfer_waveform_raw(2)?;
+		let product:Vec<i16> = ch1.iter().zip(ch2.iter()).map(|(a,b)| (*a as i16)*(*b as i16)).collect();
+
+		let mut ch1_cpx:Vec<Complex<f32>> = ch1.iter().map(|x| Complex{re: *x as f32, im: 0.0}).collect();
+		let mut ch2_cpx:Vec<Complex<f32>> = ch2.iter().map(|x| Complex{re: *x as f32, im: 0.0}).collect();
+		let mut product_cpx:Vec<Complex<f32>> = product.iter().map(|x| Complex{re: *x as f32, im: 0.0}).collect();
+
+		// FFTs of original channels and product
+		let mut ch1_freq_domain:Vec<Complex<f32>>     = vec![Complex::zero(); ch1_cpx.len()];
+		let mut ch2_freq_domain:Vec<Complex<f32>>     = vec![Complex::zero(); ch2_cpx.len()];
+		let mut product_freq_domain:Vec<Complex<f32>> = vec![Complex::zero(); product_cpx.len()];
+
+		let mut planner = FFTplanner::new(false);
+		let fft = planner.plan_fft(product.len());
+
+		fft.process(&mut ch1_cpx,     &mut ch1_freq_domain);
+		fft.process(&mut ch2_cpx,     &mut ch2_freq_domain);
+		fft.process(&mut product_cpx, &mut product_freq_domain);
+
+		let chn1_norms:Vec<f32> = ch1_freq_domain.iter().map(|c| c.norm()).collect();
+		let chn2_norms:Vec<f32> = ch2_freq_domain.iter().map(|c| c.norm()).collect();
+		let prod_norms:Vec<f32> = product_freq_domain.iter().map(|c| c.norm()).collect();
+		println!("chn1={:?}", chn1_norms);
+		println!("chn2={:?}", chn2_norms);
+		println!("prod={:?}", prod_norms);
+
 		// Increment the frequency for the next step
 		current_freq_hz += freq_step_hz;
 
@@ -64,30 +98,6 @@ pub fn main() -> io::Result<()> {
 	sdg2042x.set_output(1, false)?;
 
 	
-
-	// // Retrieve and decode data
- //    let ch1_data:Vec<u8> = sds1202x.ask(b"C1:WAVEFORM? DAT2")?;
-	
-	// // TODO: process the rest of the header
-	// let (header, body) = ch1_data.split_at(21);
-	// let (_, length_str) = header.split_at(12);
-
-	// let length:usize = str::from_utf8(length_str).unwrap().parse::<usize>().unwrap();
-
-	// // TODO: make these configurable and/or populate using requests from device
-	// let vdiv = 1.0;
-	// let vofs = 0.0;
-	// let mut time_domain: Vec<Complex<f64>> = vec![];
-
-	// // TODO: create some kind of sample struct for the SDS-1202X with time and voltage
-	// //let mut time = -7.0 * actual_tdiv;
-	// let mut rdr = Cursor::new(body);
-	// for _ in 0..length {
-	// 	let raw_i8:i8 = rdr.read_i8()?;
-	// 	//time += 1.0 / samp_rate_sps;
-	// 	let voltage:f64 = (raw_i8 as f64)*(vdiv/25.0) - vofs;
-	// 	time_domain.push(Complex{ re: voltage, im: 0.0});
-	// }
 
  //    // Perform FFT
 	// let mut freq_domain: Vec<Complex<f64>> = vec![Complex::zero(); length];
