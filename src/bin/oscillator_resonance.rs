@@ -55,13 +55,15 @@ pub fn main() -> io::Result<()> {
 		sds1202x.set_time_division(1.0 / current_freq_hz)?;
 
 		// Acquire once before the real thing to get an accurate sample rate
-		sds1202x.acquire()?;
+		sds1202x.arm_single()?;
+		sds1202x.force_trigger()?;
 		sds1202x.wait()?;
 
 		let samp_rate_sps:f32 = sds1202x.get_sample_rate()?;
 
 		// Capture the samples that count
-		sds1202x.acquire()?;
+		sds1202x.arm_single()?;
+		sds1202x.force_trigger()?;
 		sds1202x.wait()?;
 
 		let ch1:Vec<i8> = sds1202x.transfer_waveform_raw(1)?;

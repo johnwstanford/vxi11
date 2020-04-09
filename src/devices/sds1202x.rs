@@ -122,9 +122,7 @@ impl SDS1202X {
 	pub fn set_time_division(&mut self, tdiv:f32) -> io::Result<()> {
 		// The fine scale of voltage division is 10 [mV] so 2 decimal places is all we need
 		let cmd:String = format!("TDIV {:.7}S", tdiv);
-	    self.ask_str(&cmd)?;
-
-		Ok(())
+	    self.ask_str(&cmd).map(|_| ())
 	}
 
 	pub fn get_sample_rate(&mut self) -> io::Result<f32> {
@@ -133,7 +131,7 @@ impl SDS1202X {
 		let samp_rate_sps:f32 = match (cap.get(1).unwrap().as_str(), cap.get(2).unwrap().as_str()) {
 			(x, "M") => x.parse::<f32>().unwrap() * 1e6,
 			(x, "G") => x.parse::<f32>().unwrap() * 1e9,
-			(x, suffix) => return Err(err("Unrecognized suffix in sample rate response"))
+			(_, _)   => return Err(err("Unrecognized suffix in sample rate response"))
 		};
 
 		Ok(samp_rate_sps)
@@ -141,7 +139,6 @@ impl SDS1202X {
 
 	pub fn get_trigger_mode(&mut self) -> io::Result<TriggerMode> {
 	    let res:String   = self.ask_str("TRMD?")?;
-	    println!("{:?}", res);
 	    let cap:Captures = TRMD_RE.captures(&res).unwrap();
     	let ans:TriggerMode = match (match_str(cap.get(1), "No match for time_division")?).as_str() {
     		"AUTO"   => TriggerMode::Auto,
@@ -166,10 +163,15 @@ impl SDS1202X {
 		Ok(())
 	}
 
-	pub fn acquire(&mut self) -> io::Result<()> {
-		self.ask_str("TRMD SINGLE;ARM;FRTR")?;
-		Ok(())
+	pub fn arm_single(&mut self) -> io::Result<()> {
+		self.set_trigger_mode(TriggerMode::Single)?;
+		self.arm()
 	}
+
+	// One-liners
+	pub fn arm(&mut self)            -> io::Result<()>     { self.ask_str("ARM").map(|_| ())  }
+	pub fn force_trigger(&mut self)  -> io::Result<()>     { self.ask_str("FRTR").map(|_| ()) }
+	pub fn read_cymometer(&mut self) -> io::Result<String> { self.ask_str("CYMT?")            } // TODO: decode to a float
 
 	pub fn wait(&mut self) -> io::Result<()> {
 		let t = Duration::from_secs_f32(DEFAULT_SHORT_DURATION_SEC);
@@ -256,9 +258,7 @@ impl SDS1202X {
 
 		// The fine scale of voltage division is 10 [mV] so 2 decimal places is all we need
 		let cmd:String  = format!("C{}:VDIV {:.2}", chan_num, vdiv);
-	    self.ask_str(&cmd)?;
-
-		Ok(())
+	    self.ask_str(&cmd).map(|_| ())
 	}
 
 	pub fn set_voltage_ofs(&mut self, chan_num:u8, vofs:f32) -> io::Result<()> {
@@ -266,14 +266,7 @@ impl SDS1202X {
 
 		// TODO: Figure out how many decimal places actually matter
 		let cmd:String = format!("C{}:OFST {:.6}", chan_num, vofs);
-	    self.ask_str(&cmd)?;
-
-		Ok(())
-	}
-
-	pub fn read_cymometer(&mut self) -> io::Result<String> {
-		// TODO: decode to a float
-		Ok(str::from_utf8(&self.core.ask(b"CYMT?")?).map(|s| s.to_owned()).unwrap())
+	    self.ask_str(&cmd).map(|_| ())
 	}
 
 	pub fn ask(&mut self, data:&[u8]) -> io::Result<Vec<u8>> { 
@@ -395,12 +388,12 @@ impl Drop for SDS1202X {
 // BUZZ	BUZZER				MISCELLANEOUS
 
 // Partially implemented
-// ARM			ARM_ACQUISITION		ACQUISITION
 // SAST			SAMPLE_STATUS		ACQUISITION
 // WF			WAVEFORM			WAVEFORMTRANS
 
 // Implemented
 // *IDN?		*IDN?				MISCELLANEOUS
+// ARM			ARM_ACQUISITION		ACQUISITION
 // CYMT			CYMOMETER			FUNCTION
 // FRTR			FORCE_TRIGGER		ACQUISITION
 // OFST			OFFSET				ACQUISITION
