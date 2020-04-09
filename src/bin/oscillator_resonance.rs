@@ -6,7 +6,7 @@ use std::io;
 use std::thread;
 use std::time::Duration;
 
-use vxi11::devices::sds1202x::SDS1202X;
+use vxi11::devices::sds1202x::{SDS1202X, TriggerMode};
 use vxi11::devices::sdg2042x::{SDG2042X, Wavetype};
 
 pub fn main() -> io::Result<()> {
@@ -30,6 +30,7 @@ pub fn main() -> io::Result<()> {
 	println!("{}", serde_json::to_string_pretty(&(sdg2042x.get_full_state()?)).unwrap());
 
 	// Set up oscilloscope with state that doesn't change with frequency
+	// TODO: ensure that both channels are active
 	sds1202x.set_voltage_div(1, 0.1)?;                            // Voltage division
 	sds1202x.set_voltage_div(2, 1.0)?;                            // Voltage division
 	sds1202x.ask(b"WFSU SP,0,NP,0,FP,0")?;                        // Send all data points starting with the first one
@@ -45,7 +46,16 @@ pub fn main() -> io::Result<()> {
 
 		// Set up oscilloscope
 		sds1202x.set_time_division(10.0 / current_freq_hz)?;
-		let actual_tdiv:f32 = sds1202x.get_time_division()?;
+
+		// Acquire once before the real thing to get an accurate sample rate
+		sds1202x.acquire()?;
+		sds1202x.wait()?;
+
+		let samp_rate_sps:f32 = sds1202x.get_sample_rate()?;
+
+		// Capture the samples that count
+		sds1202x.acquire()?;
+		sds1202x.wait()?;
 
 		// Increment the frequency for the next step
 		current_freq_hz += freq_step_hz;
@@ -53,35 +63,7 @@ pub fn main() -> io::Result<()> {
 	}
 	sdg2042x.set_output(1, false)?;
 
-
-
-	// // Trigger once before the real thing to get an accurate sample rate
-	// sds1202x.ask(b"TRMD STOP")?;
-	// sds1202x.ask(b"TRMD SINGLE;ARM;FRTR")?;
-
- //    while !str::from_utf8(&(sds1202x.ask(b"SAST?")?)).unwrap().contains("SAST Stop") {
-	// 	thread::sleep(Duration::from_secs_f32(0.5));
- //    }
-
-	// let samp_rate_str:String = str::from_utf8(&sds1202x.ask(b"SARA?")?).unwrap().to_string();
-	// let samp_rate_caps = SARA_RE.captures(&samp_rate_str).unwrap();
-	// let samp_rate_sps:f32 = match (samp_rate_caps.get(1).unwrap().as_str(), samp_rate_caps.get(2).unwrap().as_str()) {
-	// 	(x, "M") => x.parse::<f32>().unwrap() * 1e6,
-	// 	(x, "G") => x.parse::<f32>().unwrap() * 1e9,
-	// 	(x, suffix) => {
-	// 		panic!("x={}, suffix={}", x, suffix)
-	// 	}
-	// };
 	
-	// // Capture the samples that count
-	// sds1202x.ask(b"TRMD STOP")?;
-	// sds1202x.ask(b"TRMD SINGLE;ARM;FRTR")?;
-
- //    while !str::from_utf8(&(sds1202x.ask(b"SAST?")?)).unwrap().contains("SAST Stop") {
-	// 	thread::sleep(Duration::from_secs_f32(0.5));
- //    }
-
-	// sdg2042x.ask(b"C1:OUTP OFF")?;
 
 	// // Retrieve and decode data
  //    let ch1_data:Vec<u8> = sds1202x.ask(b"C1:WAVEFORM? DAT2")?;

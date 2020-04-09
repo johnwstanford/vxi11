@@ -17,9 +17,11 @@ lazy_static! {
     static ref IDN_RE: Regex  = Regex::new("([^,]+),([^,]+),([^,]+),([^,\\s]+)").unwrap();
     static ref SARA_RE: Regex = Regex::new("SARA\\s(\\d+)(\\D)Sa/s").unwrap();
     static ref TDIV_RE: Regex = Regex::new("TDIV\\s([^S]+)S").unwrap();
+    static ref TRMD_RE: Regex = Regex::new("TRMD\\s(AUTO|NORM|SINGLE|STOP)").unwrap();
     static ref VDIV_RE: Regex = Regex::new("(C\\d):VDIV\\s(.+)V\\s").unwrap();
 }
 
+pub const DEFAULT_SHORT_DURATION_SEC:f32 = 0.01;
 pub const DEFAULT_TX_THROTTLE_DURATION_SEC:f32 = 0.1;
 
 pub struct SDS1202X {
@@ -35,6 +37,7 @@ pub struct State {
 	pub serial_num: String,
 	pub fw_version: String,
 	pub time_division: f32,
+	pub trigger_mode: TriggerMode,
 	pub ch1: ChannelState,
 	pub ch2: ChannelState,
 }
@@ -43,6 +46,9 @@ pub struct State {
 pub struct ChannelState {
 	pub voltage_division: f32,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum TriggerMode { Auto, Norm, Single, Stop }
 
 fn match_str(opt_match:Option<Match>, err:&str) -> io::Result<String> {
 	match opt_match {
@@ -89,11 +95,12 @@ impl SDS1202X {
 		let fw_version:String   = match_str(caps_idn.get(4), "No match for fw_version")?;
 
 	    let time_division:f32 = self.get_time_division()?;
+	    let trigger_mode:TriggerMode = self.get_trigger_mode()?;
 
 		let ch1 = self.get_channel_state(1)?;
 		let ch2 = self.get_channel_state(2)?;
 
-		Ok(State{ manufacturer, model, serial_num, fw_version, time_division, ch1, ch2 })
+		Ok(State{ manufacturer, model, serial_num, fw_version, time_division, trigger_mode, ch1, ch2 })
 	}
 
 	pub fn get_channel_state(&mut self, chan_num:u8) -> io::Result<ChannelState> {
@@ -114,7 +121,7 @@ impl SDS1202X {
 	pub fn get_time_division(&mut self) -> io::Result<f32> {
 	    let res:String   = self.ask_str("TDIV?")?;
 	    let cap:Captures = TDIV_RE.captures(&res).unwrap();
-    	(match_str(cap.get(1), "No match for time_division")?).parse::<f32>().map_err(|_| Error::new(ErrorKind::Other, "SDS1202X only has two channels"))
+    	(match_str(cap.get(1), "No match for time_division")?).parse::<f32>().map_err(|_| Error::new(ErrorKind::Other, "Unable to parse time division into f32"))
 	}
 
 	pub fn set_time_division(&mut self, tdiv:f32) -> io::Result<()> {
@@ -123,6 +130,59 @@ impl SDS1202X {
 	    self.ask_str(&cmd)?;
 
 		Ok(())
+	}
+
+	pub fn get_sample_rate(&mut self) -> io::Result<f32> {
+		let res:String   = self.ask_str("SARA?")?;
+		let cap:Captures = SARA_RE.captures(&res).unwrap();
+		let samp_rate_sps:f32 = match (cap.get(1).unwrap().as_str(), cap.get(2).unwrap().as_str()) {
+			(x, "M") => x.parse::<f32>().unwrap() * 1e6,
+			(x, "G") => x.parse::<f32>().unwrap() * 1e9,
+			(x, suffix) => return Err(err("Unrecognized suffix in sample rate response"))
+		};
+
+		Ok(samp_rate_sps)
+	}
+
+	pub fn get_trigger_mode(&mut self) -> io::Result<TriggerMode> {
+	    let res:String   = self.ask_str("TRMD?")?;
+	    println!("{:?}", res);
+	    let cap:Captures = TRMD_RE.captures(&res).unwrap();
+    	let ans:TriggerMode = match (match_str(cap.get(1), "No match for time_division")?).as_str() {
+    		"AUTO"   => TriggerMode::Auto,
+    		"NORM"   => TriggerMode::Norm,
+    		"SINGLE" => TriggerMode::Single,
+    		"STOP"   => TriggerMode::Stop,
+    		_        => return Err(err("Invalid value for trigger mode"))
+    	};
+    	
+    	Ok(ans)
+	}
+
+	pub fn set_trigger_mode(&mut self, trmd:TriggerMode) -> io::Result<()> {
+		let trmd_str = match trmd {
+    		TriggerMode::Auto   => "AUTO",
+    		TriggerMode::Norm   => "NORM",
+    		TriggerMode::Single => "SINGLE",
+    		TriggerMode::Stop   => "STOP"
+		};
+		self.ask_str(&format!("TRMD {}", &trmd_str))?;
+
+		Ok(())
+	}
+
+	pub fn acquire(&mut self) -> io::Result<()> {
+		self.ask_str("TRMD SINGLE;ARM;FRTR")?;
+		Ok(())
+	}
+
+	pub fn wait(&mut self) -> io::Result<()> {
+		let t = Duration::from_secs_f32(DEFAULT_SHORT_DURATION_SEC);
+	    while !self.ask_str("SAST?")?.contains("SAST Stop") { 
+	    	thread::sleep(t); 
+	    }		
+
+	    Ok(())
 	}
 
 	pub fn set_voltage_div(&mut self, chan_num:u8, vdiv:f32) -> io::Result<()> {
@@ -189,7 +249,6 @@ impl Drop for SDS1202X {
 // *ESR?	*ESR?				STATUS
 // EXR?	EXR?				STATUS
 // FLNM	FILENAME			MASS STORAGE
-// FRTR	FORCE_TRIGGER		ACQUISITION
 // FVDISK	FORMAT_VDISK		MASS STORAGE
 // FILT	FILTER				FUNCTION
 // FILTS	FILT_SET			FUNCTION
@@ -262,14 +321,15 @@ impl Drop for SDS1202X {
 // XYDS	XY_DISPLAY			DISPLAY
 // ASET	AUTO_SETUP			ACQUISITION
 // BUZZ	BUZZER				MISCELLANEOUS
-// SAST	SAMPLE_STATUS		ACQUISITION
-// SARA	SAMPLE_RATE			ACQUISITION
-// TDIV	TIME_DIV			ACQUISITION
-// TRMD	TRIG_MODE			ACQUISITION
 
 // Partially implemented
+// SAST			SAMPLE_STATUS		ACQUISITION
 
 // Implemented
 // *IDN?		*IDN?				MISCELLANEOUS
 // CYMT			CYMOMETER			FUNCTION
+// FRTR			FORCE_TRIGGER		ACQUISITION
+// SARA			SAMPLE_RATE			ACQUISITION
+// TDIV			TIME_DIV			ACQUISITION
+// TRMD	 		TRIG_MODE			ACQUISITION
 // VDIV			VOLT_DIV			ACQUISITION

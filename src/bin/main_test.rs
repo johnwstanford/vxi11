@@ -23,7 +23,6 @@ use vxi11::devices::sds1202x::SDS1202X;
 
 lazy_static! {
     static ref TDIV_RE: Regex = Regex::new("TDIV\\s([^S]+)S").unwrap();
-    static ref SARA_RE: Regex = Regex::new("SARA\\s(\\d+)(\\D)Sa/s").unwrap();
 }
 
 pub fn main() -> io::Result<()> {
@@ -92,8 +91,7 @@ pub fn main() -> io::Result<()> {
 	let tdiv_cmd:String = format!("TDIV {:.7}S", 10.0*freq.powi(-1));
 	sds1202x.ask(tdiv_cmd.as_bytes())?; 	                       // Time division
 
-	let actual_tdiv_str:String = str::from_utf8(&sds1202x.ask(b"TDIV?")?).unwrap().to_string();
-	let actual_tdiv:f32 = TDIV_RE.captures(&actual_tdiv_str).unwrap().get(1).unwrap().as_str().parse::<f32>().unwrap();
+	let actual_tdiv:f32 = sds1202x.get_time_division()?;
 
 	// Trigger once before the real thing to get an accurate sample rate
 	sds1202x.ask(b"TRMD STOP")?;
