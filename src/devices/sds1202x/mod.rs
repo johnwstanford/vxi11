@@ -26,6 +26,8 @@ lazy_static! {
 pub const DEFAULT_SHORT_DURATION_SEC:f32 = 0.01;
 pub const DEFAULT_TX_THROTTLE_DURATION_SEC:f32 = 0.1;
 
+pub mod protocol_decode;
+
 pub struct SDS1202X {
 	core: CoreClient,
 	tx_throttle_duration: Duration,
@@ -129,6 +131,7 @@ impl SDS1202X {
 		let res:String   = self.ask_str("SARA?")?;
 		let cap:Captures = SARA_RE.captures(&res).unwrap();
 		let samp_rate_sps:f32 = match (cap.get(1).unwrap().as_str(), cap.get(2).unwrap().as_str()) {
+			(x, "k") => x.parse::<f32>().unwrap() * 1e3,
 			(x, "M") => x.parse::<f32>().unwrap() * 1e6,
 			(x, "G") => x.parse::<f32>().unwrap() * 1e9,
 			(_, _)   => return Err(err("Unrecognized suffix in sample rate response"))

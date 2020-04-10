@@ -85,7 +85,7 @@ pub fn main() -> io::Result<()> {
 	sdg2042x.ask(b"C1:OUTP ON")?;
 	
 	// Set up oscilloscope
-	sds1202x.set_voltage_div(1, 1.0)?;                            // Voltage division
+	sds1202x.set_voltage_div(1, 1.0)?;                             // Voltage division
 	sds1202x.ask(b"WFSU SP,0,NP,0,FP,0")?;                         // Send all data points starting with the first one
 
 	let tdiv_cmd:String = format!("TDIV {:.7}S", 10.0*freq.powi(-1));
