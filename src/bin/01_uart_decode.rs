@@ -3,8 +3,6 @@ extern crate serde;
 extern crate vxi11;
 
 use std::io;
-use std::thread;
-use std::time::Duration;
 
 use vxi11::devices::sds1202x::{SDS1202X, TriggerMode, protocol_decode};
 
@@ -42,5 +40,4 @@ pub fn main() -> io::Result<()> {
 		println!("{}", uart_rx);
 	}
 
-	Ok(())
 }

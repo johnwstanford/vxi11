@@ -49,6 +49,7 @@ pub struct State {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ChannelState {
 	pub voltage_division: f32,
+	pub voltage_offset: f32,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -111,8 +112,9 @@ impl SDS1202X {
 		chan_ok(chan_num)?;
 
 	    let voltage_division:f32 = self.get_voltage_div(chan_num)?;
+	    let voltage_offset:f32 = self.get_voltage_ofs(chan_num)?;
 
-		Ok(ChannelState{ voltage_division })
+		Ok(ChannelState{ voltage_division, voltage_offset })
 	}
 
 	pub fn get_time_division(&mut self) -> io::Result<f32> {
