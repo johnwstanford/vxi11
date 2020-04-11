@@ -11,7 +11,7 @@ use rustfft::FFTplanner;
 use rustfft::num_complex::Complex;
 use rustfft::num_traits::Zero;
 
-use vxi11::devices::sds1202x::{SDS1202X, TriggerMode};
+use vxi11::devices::sds1202x::SDS1202X;
 use vxi11::devices::sdg2042x::{SDG2042X, Wavetype};
 
 pub fn main() -> io::Result<()> {
@@ -20,7 +20,6 @@ pub fn main() -> io::Result<()> {
 	let host_sds1202x = "192.168.2.2";
 	let host_sdg2042x = "192.168.2.3";
 
-	let expected_resonance_freq_hz = 16.0e6;
 	let min_freq_hz:f32 = 15.8e6;
 	let max_freq_hz:f32 = 16.2e6;
 	let freq_step_hz:f32 = 1.0e3;
@@ -54,17 +53,12 @@ pub fn main() -> io::Result<()> {
 		// Set up oscilloscope
 		sds1202x.set_time_division(1.0 / current_freq_hz)?;
 
-		// Acquire once before the real thing to get an accurate sample rate
-		sds1202x.arm_single()?;
-		sds1202x.force_trigger()?;
-		sds1202x.wait()?;
-
-		let samp_rate_sps:f32 = sds1202x.get_sample_rate()?;
-
 		// Capture the samples that count
 		sds1202x.arm_single()?;
 		sds1202x.force_trigger()?;
 		sds1202x.wait()?;
+
+		// let samp_rate_sps:f32 = sds1202x.get_sample_rate()?;
 
 		let ch1:Vec<i8> = sds1202x.transfer_waveform_raw(1)?;
 		let ch2:Vec<i8> = sds1202x.transfer_waveform_raw(2)?;

@@ -11,16 +11,15 @@ pub fn main() -> io::Result<()> {
 	// TODO: search for IP addresses instead of needing them provided
 	let host_sds1202x = "192.168.2.2";
 
-	let mut sds1202x = SDS1202X::new(host_sds1202x)?;
+	let mut sds1202x:SDS1202X = SDS1202X::new(host_sds1202x)?;
 
 	eprintln!("Initial device state");
-	eprintln!("{}", serde_json::to_string_pretty(&(sds1202x.get_full_state()?)).unwrap());
+	eprintln!("{}", serde_json::to_string_pretty(&(sds1202x.get_full_state()?))?);
 
 	// Set up oscilloscope
 	sds1202x.set_voltage_div(1, 1.0)?;                            // Voltage division
 	sds1202x.set_voltage_ofs(1, 0.0)?;							  // Voltage offset
 	sds1202x.ask(b"WFSU SP,0,NP,0,FP,0")?;                        // Send all data points starting with the first one
-
 
 	loop {
 		// Capture the samples that count
