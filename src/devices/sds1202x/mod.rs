@@ -16,11 +16,12 @@ use crate::vxi11::CoreClient;
 
 lazy_static! {
     static ref IDN_RE: Regex  = Regex::new("([^,]+),([^,]+),([^,]+),([^,\\s]+)").unwrap();
+    static ref OFST_RE: Regex = Regex::new("C(\\d):OFST\\s(.+)V\\s").unwrap();
     static ref SARA_RE: Regex = Regex::new("SARA\\s(\\d+)(\\D)Sa/s").unwrap();
     static ref TDIV_RE: Regex = Regex::new("TDIV\\s([^S]+)S").unwrap();
+    static ref TRA_RE: Regex  = Regex::new("C(\\d):TRA\\s(ON|OFF)").unwrap();
     static ref TRMD_RE: Regex = Regex::new("TRMD\\s(AUTO|NORM|SINGLE|STOP)").unwrap();
-    static ref OFST_RE: Regex = Regex::new("(C\\d):OFST\\s(.+)V\\s").unwrap();
-    static ref VDIV_RE: Regex = Regex::new("(C\\d):VDIV\\s(.+)V\\s").unwrap();
+    static ref VDIV_RE: Regex = Regex::new("C(\\d):VDIV\\s(.+)V\\s").unwrap();
 }
 
 pub const DEFAULT_SHORT_DURATION_SEC:f32 = 0.01;
@@ -50,6 +51,7 @@ pub struct State {
 pub struct ChannelState {
 	pub voltage_division: f32,
 	pub voltage_offset: f32,
+	pub trace_display_enabled: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -113,8 +115,9 @@ impl SDS1202X {
 
 	    let voltage_division:f32 = self.get_voltage_div(chan_num)?;
 	    let voltage_offset:f32 = self.get_voltage_ofs(chan_num)?;
+	    let trace_display_enabled:bool = self.get_trace_display_enabled(chan_num)?;
 
-		Ok(ChannelState{ voltage_division, voltage_offset })
+		Ok(ChannelState{ voltage_division, voltage_offset, trace_display_enabled })
 	}
 
 	pub fn get_time_division(&mut self) -> io::Result<f32> {
@@ -178,6 +181,7 @@ impl SDS1202X {
 	pub fn force_trigger(&mut self)  -> io::Result<()>     { self.ask_str("FRTR").map(|_| ()) }
 	pub fn read_cymometer(&mut self) -> io::Result<String> { self.ask_str("CYMT?")            } // TODO: decode to a float
 
+
 	pub fn wait(&mut self) -> io::Result<()> {
 		let t = Duration::from_secs_f32(DEFAULT_SHORT_DURATION_SEC);
 	    while !self.ask_str("SAST?")?.contains("SAST Stop") { 
@@ -239,6 +243,20 @@ impl SDS1202X {
 
 	}
 
+	pub fn get_trace_display_enabled(&mut self, chan_num:u8) -> io::Result<bool> {
+		chan_ok(chan_num)?;
+
+	    // TODO: check group 1 of the captures to make sure it matches the channel we asked for
+		let cmd:String   = format!("C{}:TRA?", chan_num);
+	    let res:String   = self.ask_str(&cmd)?;
+    	let cap:Captures = match TRA_RE.captures(&res) {
+    		Some(c) => c,
+    		None    => return Err(err("No match for TRA_RE"))
+    	};
+
+		Ok(cap.get(2).map(|m| m.as_str()) == Some("ON"))
+	}
+
 	pub fn transfer_waveform(&mut self, chan_num:u8) -> io::Result<Vec<(f32, f32)>> {
 		let raw_data:Vec<i8> = self.transfer_waveform_raw(chan_num)?;
 
@@ -255,6 +273,15 @@ impl SDS1202X {
 		}
 
 		Ok(time_domain)
+	}
+
+	pub fn set_trace_display_enabled(&mut self, chan_num:u8, b:bool) -> io::Result<()> {
+		// TODO add options for whether to enable a full, partial, or no state update after commanding a configuration change
+		chan_ok(chan_num)?;
+
+		// The fine scale of voltage division is 10 [mV] so 2 decimal places is all we need
+		let cmd:String  = format!("C{}:TRA {}", chan_num, if b {"ON"} else {"OFF"});
+	    self.ask_str(&cmd).map(|_| ())
 	}
 
 	pub fn set_voltage_div(&mut self, chan_num:u8, vdiv:f32) -> io::Result<()> {
@@ -376,7 +403,6 @@ impl Drop for SDS1202X {
 // SET50	SETTO%50			FUNCTION
 // SXSA	SINXX_SAMPLE		ACQUISITION
 // TMPL	TEMPLATE			WAVEFORM TRANSFER
-// TRA	TRACE				DISPLAY
 // *TRG	*TRG				ACQUISITION
 // TRCP	TRIG_COUPLING		ACQUISITION
 // TRDL	TRIG_DELAY			ACQUISITION
@@ -404,5 +430,6 @@ impl Drop for SDS1202X {
 // OFST			OFFSET				ACQUISITION
 // SARA			SAMPLE_RATE			ACQUISITION
 // TDIV			TIME_DIV			ACQUISITION
+// TRA			TRACE				DISPLAY
 // TRMD	 		TRIG_MODE			ACQUISITION
 // VDIV			VOLT_DIV			ACQUISITION
