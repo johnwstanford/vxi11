@@ -50,6 +50,7 @@ pub struct BroadcastUdpClient {
 	pub socket: UdpSocket,
     pub prog: u32,
     pub vers: u32,
+    pub port: u16,
     pub lastxid: u32,
     pub packer: xdr::Packer,
     pub unpacker: xdr::Unpacker,
@@ -58,22 +59,17 @@ pub struct BroadcastUdpClient {
 
 impl BroadcastUdpClient {
 
-	// TODO: finish debugging this
 	// https://stackoverflow.com/questions/61045602/how-do-you-broadcast-a-udp-datagram-and-receive-the-responses-in-rust?noredirect=1#comment107997707_61045602
 
 	pub fn bind(port:u16, prog: u32, vers: u32) -> io::Result<Self> {
-		let socket:UdpSocket = UdpSocket::bind("192.168.2.255:0")?;
+		let socket:UdpSocket = UdpSocket::bind("0.0.0.0:0")?;
 		socket.set_read_timeout(Some(Duration::new(5, 0)))?;
 		socket.set_broadcast(true)?;
-		socket.connect(("255.255.255.255", port))?;
-		println!("Connected on port {}", port);
-		println!("Broadcast: {:?}", socket.broadcast());
-		println!("Timeout: {:?}", socket.read_timeout());
 
 		let packer = xdr::Packer::new();
 		let unpacker = xdr::Unpacker::new();
 
-		Ok(Self{ socket, prog, vers, lastxid: 0, packer, unpacker, recv_buff: [0; 8092] })
+		Ok(Self{ socket, prog, vers, port: port as u16, lastxid: 0, packer, unpacker, recv_buff: [0; 8092] })
 	}
 
 
@@ -86,8 +82,7 @@ impl BroadcastUdpClient {
     pub fn make_call(&mut self) -> io::Result<()> {
 	    // Function arguments should have just been packed when this message is called
 	    let call:Vec<u8> = self.packer.get_buf()?;
-	    println!("Sending call, {} bytes", call.len());
-	    match self.socket.send(&call) {
+	    match self.socket.send_to(&call, ("255.255.255.255", self.port)) {
 	    	Ok(n) => {
 	    		if n != call.len() {
 	    			return Err(Error::new(ErrorKind::Other, "Sent the wrong number of bytes"))
@@ -99,9 +94,7 @@ impl BroadcastUdpClient {
 	    	Err(e) => return Err(e),
 	    }
 
-	    println!("Awaiting responses...");
 	    while let Ok((n, addr)) = self.socket.recv_from(&mut self.recv_buff) {
-		    println!("{} bytes response from {:?}", n, addr);
 		    self.unpacker.reset(&self.recv_buff[0..(n as usize)]);
 		    let (xid, _) = xdr_unpack::unpack_replyheader(&mut self.unpacker)?;
 
