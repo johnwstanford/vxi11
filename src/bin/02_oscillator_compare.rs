@@ -3,12 +3,14 @@ extern crate serde;
 extern crate vxi11;
 
 use std::io;
-use std::time::Instant;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use serde::{Serialize, Deserialize};
 
 use vxi11::devices::sds1202x::{SDS1202X, TriggerMode};
 use vxi11::devices::sdg2042x::{SDG2042X, Wavetype};
+use vxi11::devices::spd3303x::{SPD3303X};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct TriggerResult {
@@ -20,14 +22,29 @@ struct TriggerResult {
 pub fn main() -> io::Result<()> {
 
 	// TODO: search for IP addresses instead of needing them provided
+	let host_spd3303x = "192.168.2.2";
 	let host_sds1202x = "192.168.2.3";
 	let host_sdg2402x = "192.168.2.4";
 
+	let mut spd3303x:SPD3303X = SPD3303X::new(host_spd3303x)?;
 	let mut sds1202x:SDS1202X = SDS1202X::new(host_sds1202x)?;
 	let mut sdg2042x:SDG2042X = SDG2042X::new(host_sdg2402x)?;
 
-	eprintln!("{:?}", sdg2042x.get_channel_state(1));
-	eprintln!("{:?}", sdg2042x.get_channel_state(2));
+	eprintln!("{:?}", spd3303x.get_full_state()?);
+
+	eprintln!("{:?}", spd3303x.ask_str("INST CH1")?);
+	thread::sleep(Duration::new(1, 0));
+	eprintln!("{:?}", spd3303x.ask_str("INST?")?);
+
+	eprintln!("{:?}", spd3303x.ask_str("INST CH2")?);
+	thread::sleep(Duration::new(1, 0));
+	eprintln!("{:?}", spd3303x.ask_str("INST?")?);
+
+	eprintln!("{:?}", spd3303x.ask_str("INST CH3")?);
+	thread::sleep(Duration::new(1, 0));
+	eprintln!("{:?}", spd3303x.ask_str("INST?")?);
+
+	// TODO: set up waveform generator channel
 
 	// Set up both channels
 	sds1202x.set_voltage_div(1, 2.0)?;
@@ -38,6 +55,11 @@ pub fn main() -> io::Result<()> {
 	}
 	sds1202x.ask(b"WFSU SP,0,NP,0,FP,0")?;                        // Send all data points starting with the first one
 
+
+	// Reset the counters
+	// sdg2042x.set_output(1, true)?;
+	// thread::sleep(Duration::new(1, 0));
+	// sdg2042x.set_output(1, false)?;
 	let t0 = Instant::now();
 
 	// Trigger the samples
@@ -52,6 +74,8 @@ pub fn main() -> io::Result<()> {
 	let ans = TriggerResult{ t_ms, ch1, ch2 };	
 
 	println!("{}", serde_json::to_string_pretty(&ans).unwrap());
+
+	sds1202x.set_trigger_mode(TriggerMode::Norm)?;
 
 	Ok(())
 }

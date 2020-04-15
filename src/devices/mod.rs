@@ -4,3 +4,4 @@
 
 pub mod sds1202x;
 pub mod sdg2042x;
+pub mod spd3303x;
