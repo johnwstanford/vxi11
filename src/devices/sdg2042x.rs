@@ -15,9 +15,12 @@ use serde::{Serialize, Deserialize};
 use crate::vxi11::CoreClient;
 
 lazy_static! {
-    static ref BSWV_RE: Regex = Regex::new("(C[12]):BSWV\\sWVTP,(SINE|SQUARE|RAMP|PULSE|NOISE|ARB|DC),FRQ,(\\d+)HZ,PERI,[^,]+,AMP,([^V]+)V,AMPVRMS,[^,]+,OFST,([^V]+)V,HLEV,[^,]+,LLEV,[^,]+,PHSE,([^,]+)").unwrap();
-    static ref IDN_RE: Regex  = Regex::new("([^,]+),([^,]+),([^,]+),([^,\\s]+)").unwrap();
-    static ref OUTP_RE: Regex = Regex::new("C[12]:OUTP (ON|OFF),LOAD,([^,]+),PLRT,([^,]+)").unwrap();
+    static ref BSWV_RE: Regex     = Regex::new("(C[12]):BSWV\\sWVTP,(SINE|SQUARE|RAMP|PULSE|NOISE|ARB|DC)").unwrap();
+    static ref BSWV_DC_RE: Regex  = Regex::new("(C[12]):BSWV\\sWVTP,DC,OFST,([^V]+)V").unwrap();
+    static ref BSWV_DEF_RE: Regex = Regex::new("(C[12]):BSWV\\sWVTP,(SINE|SQUARE|RAMP|PULSE|NOISE|ARB),FRQ,(\\d+)HZ,PERI,[^,]+,AMP,([^V]+)V,AMPVRMS,[^,]+,OFST,([^V]+)V,HLEV,[^,]+,LLEV,[^,]+,PHSE,([^,]+)").unwrap();
+    //											(C[12]):BSWV\\sWVTP,(SINE|SQUARE|RAMP|PULSE|NOISE|ARB),FRQ,(\\d+)HZ,PERI,[^,]+,AMP,([^V]+)V,AMPVRMS,[^,]+,OFST,([^V]+)V,HLEV,2V,LLEV,-2V,PHSE,0\n
+    static ref IDN_RE: Regex      = Regex::new("([^,]+),([^,]+),([^,]+),([^,\\s]+)").unwrap();
+    static ref OUTP_RE: Regex     = Regex::new("C[12]:OUTP (ON|OFF),LOAD,([^,]+),PLRT,([^,]+)").unwrap();
 }
 
 pub const DEFAULT_TX_THROTTLE_DURATION_SEC:f32 = 0.1;
@@ -117,26 +120,46 @@ impl SDG2042X {
 		};
 
 		// TODO: check that capture 1 represents the same channel we asked for
-		let basic_wavetype:Wavetype = match (match_str(bswv_cap.get(2), "No match for basic wavetype")?).as_str() {
-			"SINE"   => Wavetype::Sine,
-			"SQUARE" => Wavetype::Square,
-			"RAMP"   => Wavetype::Ramp,
-			"PULSE"  => Wavetype::Pulse,
-			"NOISE"  => Wavetype::Noise,
-			"ARB"    => Wavetype::Arb,
-			"DC"     => Wavetype::DC,
-			_        => return Err(Error::new(ErrorKind::Other, "Unrecognized basic wavetype")),	
-		};
-		let freq_hz:u32 = (match_str(bswv_cap.get(3), "No match for freq_hz")?).parse::<u32>()
-			.map_err(|_| Error::new(ErrorKind::Other, "Unable to parse matched freq_hz as a u32"))?;
-		let amp_v:f32 = (match_str(bswv_cap.get(4), "No match for amp_v")?).parse::<f32>()
-			.map_err(|_| Error::new(ErrorKind::Other, "Unable to parse matched amp_v as an f32"))?;
-		let offset_v:f32 = (match_str(bswv_cap.get(5), "No match for offset_v")?).parse::<f32>()
-			.map_err(|_| Error::new(ErrorKind::Other, "Unable to parse matched offset_v as an f32"))?;
-		let phase_deg:f32 = (match_str(bswv_cap.get(6), "No match for phase_deg")?).trim_end().parse::<f32>()
-			.map_err(|_| Error::new(ErrorKind::Other, "Unable to parse matched phase_deg as an f32"))?;
+		match (match_str(bswv_cap.get(2), "No match for basic wavetype")?).as_str() {
+			"DC" => {
+				let cap:Captures = match BSWV_DC_RE.captures(&bswv_res) {
+					Some(c) => c,
+					_ => return Err(Error::new(ErrorKind::Other, "Unable to match expression for DC wavetype")),
+				};
 
-		Ok(ChannelState{ basic_wavetype, freq_hz, amp_v, offset_v, phase_deg })
+				let offset_v:f32 = (match_str(cap.get(2), "No match for offset_v")?).parse::<f32>()
+					.map_err(|_| Error::new(ErrorKind::Other, "Unable to parse matched offset_v as an f32"))?;
+
+				Ok(ChannelState{ basic_wavetype: Wavetype::DC, freq_hz:0, amp_v:0.0, offset_v, phase_deg:0.0 })
+			},
+			s => {
+				let cap:Captures = match BSWV_DEF_RE.captures(&bswv_res) {
+					Some(c) => c,
+					_ => return Err(Error::new(ErrorKind::Other, "Unable to match expression for default wavetype")),
+				};
+
+				let basic_wavetype:Wavetype = match s {
+					"SINE"   => Wavetype::Sine,
+					"SQUARE" => Wavetype::Square,
+					"RAMP"   => Wavetype::Ramp,
+					"PULSE"  => Wavetype::Pulse,
+					"NOISE"  => Wavetype::Noise,
+					"ARB"    => Wavetype::Arb,
+					_        => return Err(Error::new(ErrorKind::Other, "Unrecognized basic wavetype")),	
+				};
+
+				let freq_hz:u32 = (match_str(cap.get(3), "No match for freq_hz")?).parse::<u32>()
+					.map_err(|_| Error::new(ErrorKind::Other, "Unable to parse matched freq_hz as a u32"))?;
+				let amp_v:f32 = (match_str(cap.get(4), "No match for amp_v")?).parse::<f32>()
+					.map_err(|_| Error::new(ErrorKind::Other, "Unable to parse matched amp_v as an f32"))?;
+				let offset_v:f32 = (match_str(cap.get(5), "No match for offset_v")?).parse::<f32>()
+					.map_err(|_| Error::new(ErrorKind::Other, "Unable to parse matched offset_v as an f32"))?;
+				let phase_deg:f32 = (match_str(cap.get(6), "No match for phase_deg")?).trim_end().parse::<f32>()
+					.map_err(|_| Error::new(ErrorKind::Other, "Unable to parse matched phase_deg as an f32"))?;
+
+				Ok(ChannelState{ basic_wavetype, freq_hz, amp_v, offset_v, phase_deg })
+			}
+		}
 	}
 
 	pub fn set_output(&mut self, chan_num:u8, on:bool) -> io::Result<()> {

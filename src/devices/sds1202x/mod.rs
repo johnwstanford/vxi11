@@ -24,8 +24,8 @@ lazy_static! {
     static ref VDIV_RE: Regex = Regex::new("C(\\d):VDIV\\s(.+)V\\s").unwrap();
 }
 
-pub const DEFAULT_SHORT_DURATION_SEC:f32 = 0.01;
-pub const DEFAULT_TX_THROTTLE_DURATION_SEC:f32 = 0.1;
+pub const DEFAULT_SHORT_DURATION_SEC:f32 = 0.001;
+pub const DEFAULT_TX_THROTTLE_DURATION_SEC:f32 = 0.001;
 
 pub mod protocol_decode;
 
@@ -88,7 +88,7 @@ impl SDS1202X {
 		}
 
 		// TODO: make this configurable
-		let tx_throttle_duration = Duration::from_secs_f32(DEFAULT_TX_THROTTLE_DURATION_SEC);
+		let tx_throttle_duration = Duration::new(0, 1);
 
 		Ok(Self{ core, tx_throttle_duration, state: None })
 	}
@@ -183,7 +183,7 @@ impl SDS1202X {
 
 
 	pub fn wait(&mut self) -> io::Result<()> {
-		let t = Duration::from_secs_f32(DEFAULT_SHORT_DURATION_SEC);
+		let t = Duration::new(0, 1);
 	    while !self.ask_str("SAST?")?.contains("SAST Stop") { 
 	    	thread::sleep(t); 
 	    }		
