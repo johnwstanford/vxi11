@@ -27,13 +27,18 @@ pub struct SPD3303X {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct ChannelState {
+	voltage: f32
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct State {
 	pub manufacturer: String,
 	pub model: String,
 	pub serial_num: String,
 	pub fw_version: String,
-	// pub ch1: ChannelState,
-	// pub ch2: ChannelState,
+	pub ch1: ChannelState,
+	pub ch2: ChannelState,
 }
 
 fn match_str(opt_match:Option<Match>, err:&str) -> io::Result<String> {
@@ -42,6 +47,8 @@ fn match_str(opt_match:Option<Match>, err:&str) -> io::Result<String> {
 		None    => Err(Error::new(ErrorKind::Other, err))
 	}
 }
+
+fn err(msg:&str) -> io::Error { Error::new(ErrorKind::Other, msg) }
 
 pub fn chan_ok(n:u8) -> io::Result<()> {
 	if n != 1 && n != 2 { Err(Error::new(ErrorKind::Other, "SDG2042X only has two channels")) }
@@ -78,10 +85,28 @@ impl SPD3303X {
 		let serial_num:String   = match_str(caps_idn.get(3), "No match for serial_num")?;
 		let fw_version:String   = match_str(caps_idn.get(4), "No match for fw_version")?;
 
-		// let ch1 = self.get_channel_state(1)?;
-		// let ch2 = self.get_channel_state(2)?;
+		let ch1 = self.get_channel_state(1)?;
+		let ch2 = self.get_channel_state(2)?;
 
-		Ok(State{ manufacturer, model, serial_num, fw_version })
+		Ok(State{ manufacturer, model, serial_num, fw_version, ch1, ch2 })
+	}
+
+	pub fn get_channel_state(&mut self, ch:u8) -> io::Result<ChannelState> {
+		chan_ok(ch)?;
+
+		let voltage:f32 = self.get_voltage(ch)?;
+
+		Ok(ChannelState{ voltage })		
+	}
+
+	pub fn get_voltage(&mut self, ch:u8) -> io::Result<f32> {
+		chan_ok(ch)?;
+
+	    // TODO: check group 1 of the captures to make sure it matches the channel we asked for
+	    // TODO: remove all unwraps
+		let cmd:String   = format!("CH{}:VOLT?", ch);
+	    let res:String   = self.ask_str(&cmd)?;
+		Ok(res.trim().parse::<f32>().map_err(|_| err("Unable to parse voltage response as a float"))?)
 	}
 
 	pub fn ask(&mut self, data:&[u8]) -> io::Result<Vec<u8>> { 
