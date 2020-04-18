@@ -40,6 +40,10 @@ pub fn main() -> io::Result<()> {
 
 	// Set up DC power supply
 	eprintln!("{}", serde_json::to_string_pretty(&spd3303x.get_full_state()?)?);
+	spd3303x.set_voltage(1, 3.30)?;
+	spd3303x.set_voltage(2, 12.0)?;
+	spd3303x.set_current(1, 0.2)?;
+	spd3303x.set_current(2, 0.8)?;
 
 	// Set up oscilloscope
 	sds1202x.set_voltage_div(1, 1.0)?;

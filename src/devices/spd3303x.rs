@@ -28,6 +28,7 @@ pub struct SPD3303X {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ChannelState {
+	current: f32,
 	voltage: f32
 }
 
@@ -94,19 +95,44 @@ impl SPD3303X {
 	pub fn get_channel_state(&mut self, ch:u8) -> io::Result<ChannelState> {
 		chan_ok(ch)?;
 
+		let current:f32 = self.get_current(ch)?;
 		let voltage:f32 = self.get_voltage(ch)?;
 
-		Ok(ChannelState{ voltage })		
+		Ok(ChannelState{ current, voltage })		
 	}
 
 	pub fn get_voltage(&mut self, ch:u8) -> io::Result<f32> {
 		chan_ok(ch)?;
 
-	    // TODO: check group 1 of the captures to make sure it matches the channel we asked for
-	    // TODO: remove all unwraps
-		let cmd:String   = format!("CH{}:VOLT?", ch);
+	    let cmd:String   = format!("CH{}:VOLT?", ch);
 	    let res:String   = self.ask_str(&cmd)?;
 		Ok(res.trim().parse::<f32>().map_err(|_| err("Unable to parse voltage response as a float"))?)
+	}
+
+	pub fn get_current(&mut self, ch:u8) -> io::Result<f32> {
+		chan_ok(ch)?;
+
+	    let cmd:String   = format!("CH{}:CURR?", ch);
+	    let res:String   = self.ask_str(&cmd)?;
+		Ok(res.trim().parse::<f32>().map_err(|_| err("Unable to parse current response as a float"))?)
+	}
+
+	pub fn set_voltage(&mut self, ch:u8, voltage:f32) -> io::Result<()> {
+		chan_ok(ch)?;
+
+	    let cmd:String   = format!("CH{}:VOLT {:.2}", ch, voltage);
+	    let res:String   = self.ask_str(&cmd)?;
+
+		Ok(())		
+	}
+
+	pub fn set_current(&mut self, ch:u8, current:f32) -> io::Result<()> {
+		chan_ok(ch)?;
+
+	    let cmd:String   = format!("CH{}:CURR {:.2}", ch, current);
+	    let res:String   = self.ask_str(&cmd)?;
+
+		Ok(())		
 	}
 
 	pub fn ask(&mut self, data:&[u8]) -> io::Result<Vec<u8>> { 
@@ -134,3 +160,4 @@ impl Drop for SPD3303X {
 
 // Implemented
 // *IDN 	*IDN 		SYSTEM 		Gets identification from device.
+// VOLT
