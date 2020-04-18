@@ -29,7 +29,8 @@ pub struct SPD3303X {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ChannelState {
 	current: f32,
-	voltage: f32
+	voltage: f32,
+	measured_current: f32,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -38,6 +39,7 @@ pub struct State {
 	pub model: String,
 	pub serial_num: String,
 	pub fw_version: String,
+	pub operating_channel:u8,
 	pub ch1: ChannelState,
 	pub ch2: ChannelState,
 }
@@ -86,10 +88,12 @@ impl SPD3303X {
 		let serial_num:String   = match_str(caps_idn.get(3), "No match for serial_num")?;
 		let fw_version:String   = match_str(caps_idn.get(4), "No match for fw_version")?;
 
+		let operating_channel:u8 = self.get_operating_channel()?;
+
 		let ch1 = self.get_channel_state(1)?;
 		let ch2 = self.get_channel_state(2)?;
 
-		Ok(State{ manufacturer, model, serial_num, fw_version, ch1, ch2 })
+		Ok(State{ manufacturer, model, serial_num, fw_version, operating_channel, ch1, ch2 })
 	}
 
 	pub fn get_channel_state(&mut self, ch:u8) -> io::Result<ChannelState> {
@@ -97,8 +101,9 @@ impl SPD3303X {
 
 		let current:f32 = self.get_current(ch)?;
 		let voltage:f32 = self.get_voltage(ch)?;
+		let measured_current:f32 = self.measure_current(ch)?;
 
-		Ok(ChannelState{ current, voltage })		
+		Ok(ChannelState{ current, voltage, measured_current })		
 	}
 
 	pub fn get_voltage(&mut self, ch:u8) -> io::Result<f32> {
@@ -117,11 +122,62 @@ impl SPD3303X {
 		Ok(res.trim().parse::<f32>().map_err(|_| err("Unable to parse current response as a float"))?)
 	}
 
+	pub fn get_operating_channel(&mut self) -> io::Result<u8> {
+		match self.ask_str("INST?")?.trim() {
+			"CH1" => Ok(1),
+			"CH2" => Ok(2),
+			_     => Err(err("Unexpected response to operating channel request"))
+		}
+	}
+
+	pub fn measure_current(&mut self, ch:u8) -> io::Result<f32> {
+		chan_ok(ch)?;
+
+	    let cmd:String   = format!("MEAS:CURR? CH{}", ch);
+	    let res:String   = self.ask_str(&cmd)?;
+		Ok(res.trim().parse::<f32>().map_err(|_| err("Unable to parse current response as a float"))?)
+	}
+
 	pub fn set_voltage(&mut self, ch:u8, voltage:f32) -> io::Result<()> {
 		chan_ok(ch)?;
 
-	    let cmd:String   = format!("CH{}:VOLT {:.2}", ch, voltage);
-	    let res:String   = self.ask_str(&cmd)?;
+	    let cmd:String = format!("CH{}:VOLT {:.2}", ch, voltage);
+	    self.ask_str(&cmd)?;
+
+		Ok(())		
+	}
+
+	pub fn set_operating_channel(&mut self, ch:u8) -> io::Result<()> {
+		chan_ok(ch)?;
+
+	    let cmd:String = format!("INST {}", ch);
+	    self.ask_str(&cmd)?;
+
+		Ok(())		
+	}
+
+	pub fn enable_output(&mut self, ch:u8) -> io::Result<()> {
+		chan_ok(ch)?;
+		
+		if self.get_operating_channel()? != ch {
+			self.set_operating_channel(ch)?;
+		}
+
+	    let cmd:String = format!("OUTP CH{},ON", ch);
+	    self.ask_str(&cmd)?;
+
+		Ok(())		
+	}
+
+	pub fn disable_output(&mut self, ch:u8) -> io::Result<()> {
+		chan_ok(ch)?;
+		
+		if self.get_operating_channel()? != ch {
+			self.set_operating_channel(ch)?;
+		}
+
+	    let cmd:String = format!("OUTP CH{},OFF", ch);
+	    self.ask_str(&cmd)?;
 
 		Ok(())		
 	}
@@ -160,4 +216,5 @@ impl Drop for SPD3303X {
 
 // Implemented
 // *IDN 	*IDN 		SYSTEM 		Gets identification from device.
+// CURR
 // VOLT
