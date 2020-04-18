@@ -18,7 +18,7 @@ lazy_static! {
     static ref IDN_RE: Regex      = Regex::new("([^,]+),([^,]+),([^,]+),([^,\\s]+)").unwrap();
 }
 
-pub const DEFAULT_TX_THROTTLE_DURATION_SEC:f32 = 0.1;
+pub const DEFAULT_TX_THROTTLE_DURATION_SEC:f32 = 1.0;
 
 pub struct SPD3303X {
 	core: CoreClient,
@@ -28,9 +28,9 @@ pub struct SPD3303X {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ChannelState {
-	current: f32,
-	voltage: f32,
-	measured_current: f32,
+	pub current: f32,
+	pub voltage: f32,
+	pub measured_current: f32,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -157,6 +157,7 @@ impl SPD3303X {
 	}
 
 	pub fn enable_output(&mut self, ch:u8) -> io::Result<()> {
+	    // TODO: read back results and confirm.  This command seems to be unreliable
 		chan_ok(ch)?;
 		
 		if self.get_operating_channel()? != ch {
