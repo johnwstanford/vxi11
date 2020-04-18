@@ -186,9 +186,9 @@ impl SPD3303X {
 		chan_ok(ch)?;
 
 	    let cmd:String   = format!("CH{}:CURR {:.2}", ch, current);
-	    let res:String   = self.ask_str(&cmd)?;
+	    self.ask_str(&cmd)?;
 
-		Ok(())		
+	    Ok(())
 	}
 
 	pub fn ask(&mut self, data:&[u8]) -> io::Result<Vec<u8>> { 
