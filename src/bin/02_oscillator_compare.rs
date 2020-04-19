@@ -54,22 +54,13 @@ pub fn main() -> io::Result<()> {
 	// Set up DC power supply
 	let spd3303x_initial_state = spd3303x.get_full_state()?;
 	eprintln!("{}", serde_json::to_string_pretty(&spd3303x_initial_state)?);
-	if spd3303x_initial_state.ch2.measured_current > 0.0 {
-	    eprintln!("Expected no current in CH2 (cold start for GPSDOs) but measured current is {} [A]", spd3303x_initial_state.ch2.measured_current);
-	    
-	    // Turn of CH2 so it's ready for next time, then return an error
-    	spd3303x.disable_output(2)?;
-    	
-    	return Err(Error::new(ErrorKind::Other, "Non-zero initial current on CH2"))
-	}
+
 	spd3303x.set_voltage(1, 3.30)?;
 	spd3303x.set_voltage(2, 12.0)?;
 	spd3303x.set_current(1, 0.5)?;
 	spd3303x.set_current(2, 2.0)?;
 	
-	spd3303x.ask_str("OUTP:TRACK 0")?;  // Independent mode
-	spd3303x.enable_output(1)?;
-	spd3303x.enable_output(2)?;
+    // SPD3303X functions that enable channels are unreliable right now, so the user must activate the oscillators manually for now
 	let start_time = Instant::now();    // The start time is when we first applied power to the GPSDOs
 
 	// Set up oscilloscope
@@ -134,7 +125,7 @@ pub fn main() -> io::Result<()> {
     // This is the only output to STDOUT so this can just be redirected to a JSON file in the shell
 	println!("{}", serde_json::to_string_pretty(&ans).unwrap());
 
-	// Clean up
+	// Clean up by turning off the GPSDOs
 	spd3303x.disable_output(2)?;
 
 	Ok(())
