@@ -13,3 +13,5 @@ pub mod vxi11;
 
 // Module for devices that implement the VXI11 protocol
 pub mod devices;
+
+pub mod utils;
