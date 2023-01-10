@@ -1,5 +1,5 @@
 
-use std::time::{Duration, Instant};
+use std::time::{Duration};
 
 use vxi11::devices::sds1202x::SDS1202X;
 

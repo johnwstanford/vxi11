@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 use vxi11::devices::sds1202x::SDS1202X;
 use vxi11::devices::spd3303x::SPD3303X;
 use vxi11::utils::LinearFitProblem;

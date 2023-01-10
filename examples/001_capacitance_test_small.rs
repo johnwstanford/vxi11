@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 use vxi11::devices::sds1202x::SDS1202X;
 use vxi11::devices::spd3303x::SPD3303X;
 use vxi11::utils::LinearFitProblem;
@@ -6,6 +6,7 @@ use vxi11::utils::LinearFitProblem;
 const R_OHMS: f32 = 10.0;
 const VOLTAGE: f32 = 2.7;
 const I_FULL: f32 = VOLTAGE / R_OHMS;
+const MAX_EXPECTED_C: f64 = 1.0;
 
 const TDIV_SEC: f32 = 0.01;
 const VDIV_VOLT: f32 = 1.0;
@@ -14,7 +15,6 @@ fn main() -> Result<(), &'static str> {
 
     let start_time = Instant::now();
     let mut runs_c = LinearFitProblem::default();
-    let mut runs_v0 = LinearFitProblem::default();
 
     // Channel 1 of the power supply is connected to a resistor and capacitor connected
     // in parallel
@@ -45,16 +45,12 @@ fn main() -> Result<(), &'static str> {
         oscilloscope.set_voltage_div(1, VDIV_VOLT).unwrap();
 
         oscilloscope.arm().unwrap();
-        // oscilloscope.arm_single().unwrap();
-        std::thread::sleep(Duration::from_secs(2));
+        std::thread::sleep(Duration::from_secs(1));
 
         // Turn off the power
         println!("Disable output on power supply and discharge capacitor");
         power.disable_output(1).unwrap();
-        std::thread::sleep(Duration::from_secs(2));
-
-        // oscilloscope.force_trigger().unwrap();
-        // std::thread::sleep(Duration::from_secs_f32(TDIV_SEC*14.1));
+        std::thread::sleep(Duration::from_secs(1));
 
         let wf: Vec<(f32, f32)> = oscilloscope.transfer_waveform(1).unwrap();
         let max_millivolts: usize = wf.iter().map(|(_, v)| (*v * 1000.0) as usize).max().unwrap();
@@ -68,42 +64,29 @@ fn main() -> Result<(), &'static str> {
                 .map(|(t, v)| (t as f64, v.ln() as f64)).collect()
         };
 
-        println!("{}", problem.points.len());
-
         let fit = problem.solve()?;
 
-        let v0 = fit.intercept.exp();
         let c = -1.0/(fit.slope * (R_OHMS as f64));
 
-        println!("V0: {:.4} [V]", v0);
-        println!("C: {:.1e} [F]", c);
+        if c < MAX_EXPECTED_C {
 
-        runs_v0.points.push((start_time.elapsed().as_secs_f64(), v0));
-        runs_c.points.push((start_time.elapsed().as_secs_f64(), c));
+            println!("C: {:.1e} [F]", c);
 
-        std::fs::write(
-            "./ex000_v0.json",
-            serde_json::to_string_pretty(&runs_v0.points).unwrap().as_bytes()
-        ).unwrap();
+            runs_c.points.push((start_time.elapsed().as_secs_f64(), c));
 
-        std::fs::write(
-            "./ex000_c.json",
-            serde_json::to_string_pretty(&runs_c.points).unwrap().as_bytes()
-        ).unwrap();
+            std::fs::write(
+                "./ex001_c.json",
+                serde_json::to_string_pretty(&runs_c.points).unwrap().as_bytes()
+            ).unwrap();
 
-        let sum_c: f64 = runs_c.points.iter().map(|(_, x)| *x).sum();
-        let avg_c: f64 = sum_c / (runs_c.points.len() as f64);
-        let ssq_c: f64 = runs_c.points.iter().map(|(_, x)| (*x - avg_c).powi(2)).sum();
-        let var_c: f64 = ssq_c / (runs_c.points.len() as f64);
-        println!("Capacitance: {:.1e} +/- {:.1e} [F], N={}", avg_c, var_c.sqrt(), runs_c.points.len());
+            let sum_c: f64 = runs_c.points.iter().map(|(_, x)| *x).sum();
+            let avg_c: f64 = sum_c / (runs_c.points.len() as f64);
+            let ssq_c: f64 = runs_c.points.iter().map(|(_, x)| (*x - avg_c).powi(2)).sum();
+            let var_c: f64 = ssq_c / (runs_c.points.len() as f64);
+            println!("Capacitance: {:.1} +/- {:.2} [uF], N={}", avg_c*1.0e6, var_c.sqrt()*1.0e6, runs_c.points.len());
 
-        if runs_c.points.len() > 5 {
-            let fit_v0 = runs_v0.solve()?;
-            let fit_c = runs_c.solve()?;
-
-            println!("V0 trend: {:?}", fit_v0);
-            println!("C trend: {:?}", fit_c);
         }
+
     }
 
 }
